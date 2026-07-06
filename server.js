@@ -60,7 +60,7 @@ const { uploadToImgBB } = require('./utils/imgbb');
 const { generateImage } = require('./utils/alibaba');
 const { 
     verifyToken, 
-    verifyAdmin, 
+    verifyAdminToken, 
     generateToken, 
     hashPassword, 
     comparePassword 
@@ -86,7 +86,7 @@ async function extendSession(req, res, next) {
 }
 
 app.use('/api/admin', extendSession);
-app.use('/api/auth/refresh', extendSession);
+// Removed app.use('/api/auth/refresh', extendSession) - no longer needed for admin
 
 // ==================== AUTH ROUTES ====================
 
@@ -178,15 +178,11 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
-// Admin login - no database, just env variable check
+// Admin login - simple password check, no session persistence
 app.post('/api/auth/admin/login', async (req, res) => {
     try {
         const { password } = req.body;
-        const adminPassword = process.env.ADMIN_PASSWORD;
-        
-        if (!adminPassword) {
-            return res.status(500).json({ error: 'Admin password not configured' });
-        }
+        const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
         
         // Direct password comparison with env variable
         if (password !== adminPassword) {
@@ -212,7 +208,7 @@ app.post('/api/auth/admin/login', async (req, res) => {
     }
 });
 
-// Token refresh
+// Token refresh - simple JWT refresh without session DB lookup for admin
 app.post('/api/auth/refresh', async (req, res) => {
     try {
         const token = req.headers.authorization?.split(' ')[1];
@@ -222,6 +218,21 @@ app.post('/api/auth/refresh', async (req, res) => {
         
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         
+        // For admin tokens, just generate a new token without DB check
+        if (decoded.isAdmin) {
+            const newToken = jwt.sign(
+                { userId: 0, isAdmin: true },
+                process.env.JWT_SECRET,
+                { expiresIn: '7d' }
+            );
+            
+            return res.json({
+                success: true,
+                token: newToken
+            });
+        }
+        
+        // For regular users, still check session in DB
         const session = await pool.query(
             'SELECT * FROM sessions WHERE token = $1 AND expires_at > NOW()',
             [token]
@@ -255,7 +266,7 @@ app.post('/api/auth/refresh', async (req, res) => {
     }
 });
 
-// Verify token
+// Verify token - simple JWT check without session DB lookup
 app.get('/api/auth/verify', async (req, res) => {
     try {
         const token = req.headers.authorization?.split(' ')[1];
@@ -264,6 +275,21 @@ app.get('/api/auth/verify', async (req, res) => {
         }
         
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        
+        // For admin tokens (userId: 0), just verify the JWT is valid
+        if (decoded.isAdmin) {
+            return res.json({
+                valid: true,
+                user: {
+                    id: 0,
+                    email: 'admin@promptpro.com',
+                    name: 'Admin',
+                    is_admin: true
+                }
+            });
+        }
+        
+        // For regular users, still check session in DB
         const result = await pool.query(
             'SELECT u.id, u.email, u.name, u.is_admin FROM users u JOIN sessions s ON s.user_id = u.id WHERE s.token = $1 AND s.expires_at > NOW()',
             [token]
@@ -282,12 +308,20 @@ app.get('/api/auth/verify', async (req, res) => {
     }
 });
 
-// Logout
+// Logout - only delete session for regular users (admin has no session)
 app.post('/api/auth/logout', async (req, res) => {
     try {
         const token = req.headers.authorization?.split(' ')[1];
         if (token) {
-            await pool.query('DELETE FROM sessions WHERE token = $1', [token]);
+            try {
+                const decoded = jwt.verify(token, process.env.JWT_SECRET);
+                // Only delete session for non-admin users
+                if (!decoded.isAdmin) {
+                    await pool.query('DELETE FROM sessions WHERE token = $1', [token]);
+                }
+            } catch (e) {
+                // If token is invalid, just proceed with logout
+            }
         }
         res.json({ success: true });
     } catch (error) {
@@ -299,7 +333,7 @@ app.post('/api/auth/logout', async (req, res) => {
 // ==================== ADMIN ROUTES ====================
 
 // Get all prompts (admin)
-app.get('/api/admin/prompts', verifyToken, verifyAdmin, async (req, res) => {
+app.get('/api/admin/prompts', verifyAdminToken, async (req, res) => {
     try {
         const { page = 1, limit = 20, search = '', category = '' } = req.query;
         const offset = (page - 1) * limit;
@@ -356,7 +390,7 @@ app.get('/api/admin/prompts', verifyToken, verifyAdmin, async (req, res) => {
 });
 
 // Get single prompt (admin)
-app.get('/api/admin/prompts/:id', verifyToken, verifyAdmin, async (req, res) => {
+app.get('/api/admin/prompts/:id', verifyAdminToken, async (req, res) => {
     try {
         const { id } = req.params;
         const result = await pool.query('SELECT * FROM prompts WHERE id = $1', [id]);
@@ -373,7 +407,7 @@ app.get('/api/admin/prompts/:id', verifyToken, verifyAdmin, async (req, res) => 
 });
 
 // Create new prompt (admin)
-app.post('/api/admin/prompts', verifyToken, verifyAdmin, async (req, res) => {
+app.post('/api/admin/prompts', verifyAdminToken, async (req, res) => {
     try {
         const { 
             headline, 
@@ -403,7 +437,7 @@ app.post('/api/admin/prompts', verifyToken, verifyAdmin, async (req, res) => {
 });
 
 // Update prompt (admin)
-app.put('/api/admin/prompts/:id', verifyToken, verifyAdmin, async (req, res) => {
+app.put('/api/admin/prompts/:id', verifyAdminToken, async (req, res) => {
     try {
         const { id } = req.params;
         const { 
@@ -447,7 +481,7 @@ app.put('/api/admin/prompts/:id', verifyToken, verifyAdmin, async (req, res) => 
 });
 
 // Delete prompt (admin)
-app.delete('/api/admin/prompts/:id', verifyToken, verifyAdmin, async (req, res) => {
+app.delete('/api/admin/prompts/:id', verifyAdminToken, async (req, res) => {
     try {
         const { id } = req.params;
         const result = await pool.query('DELETE FROM prompts WHERE id = $1 RETURNING *', [id]);
@@ -464,7 +498,7 @@ app.delete('/api/admin/prompts/:id', verifyToken, verifyAdmin, async (req, res) 
 });
 
 // Get categories (admin)
-app.get('/api/admin/categories', verifyToken, verifyAdmin, async (req, res) => {
+app.get('/api/admin/categories', verifyAdminToken, async (req, res) => {
     try {
         const result = await pool.query('SELECT * FROM categories ORDER BY name');
         res.json(result.rows);
@@ -477,7 +511,7 @@ app.get('/api/admin/categories', verifyToken, verifyAdmin, async (req, res) => {
 // ==================== ADMIN STATS & USAGE ====================
 
 // Get admin stats
-app.get('/api/admin/stats', verifyToken, verifyAdmin, async (req, res) => {
+app.get('/api/admin/stats', verifyAdminToken, async (req, res) => {
     try {
         const [promptsResult, activeResult, categoriesResult, imagesResult] = await Promise.all([
             pool.query('SELECT COUNT(*) FROM prompts'),
@@ -499,7 +533,7 @@ app.get('/api/admin/stats', verifyToken, verifyAdmin, async (req, res) => {
 });
 
 // Get usage data
-app.get('/api/admin/usage', verifyToken, verifyAdmin, async (req, res) => {
+app.get('/api/admin/usage', verifyAdminToken, async (req, res) => {
     try {
         const usersResult = await pool.query(`
             SELECT 
@@ -544,7 +578,7 @@ app.get('/api/admin/usage', verifyToken, verifyAdmin, async (req, res) => {
 
 // ==================== IMAGE UPLOAD ====================
 
-app.post('/api/upload/image', verifyToken, verifyAdmin, upload.single('image'), async (req, res) => {
+app.post('/api/upload/image', verifyAdminToken, upload.single('image'), async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ error: 'No image file provided' });
@@ -566,7 +600,7 @@ app.post('/api/upload/image', verifyToken, verifyAdmin, upload.single('image'), 
 
 // ==================== DRIVE ROUTES ====================
 
-app.get('/api/drive/status', verifyToken, verifyAdmin, async (req, res) => {
+app.get('/api/drive/status', verifyAdminToken, async (req, res) => {
     try {
         const result = await pool.query(
             'SELECT access_token, expires_at FROM drive_connections WHERE expires_at > NOW() LIMIT 1'
@@ -672,7 +706,7 @@ app.get('/api/drive/callback', async (req, res) => {
     }
 });
 
-app.post('/api/drive/disconnect', verifyToken, verifyAdmin, async (req, res) => {
+app.post('/api/drive/disconnect', verifyAdminToken, async (req, res) => {
     try {
         await pool.query('DELETE FROM drive_connections');
         res.json({ success: true });
