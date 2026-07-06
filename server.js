@@ -1,6 +1,7 @@
 const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
+const path = require('path');
 require('dotenv').config();
 
 const app = express();
@@ -18,6 +19,11 @@ const pool = new Pool({
 app.use(cors());
 app.use(express.json());
 app.use(express.static('frontend'));
+
+// ===== FIX: Serve admin.html at root =====
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'frontend', 'admin.html'));
+});
 
 // Admin authentication middleware
 const adminAuth = (req, res, next) => {
@@ -234,5 +240,6 @@ app.get('/api/admin/subcategories/:category', adminAuth, async (req, res) => {
 
 // Start server
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`✅ Server running on http://localhost:${PORT}`);
+    console.log(`📋 Admin panel: http://localhost:${PORT}`);
 });
