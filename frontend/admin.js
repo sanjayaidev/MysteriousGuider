@@ -156,6 +156,26 @@ function initDashboard() {
     setupImageUpload();
 }
 
+// ==================== MOBILE SIDEBAR TOGGLE ====================
+function toggleSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('sidebarOverlay');
+    
+    if (sidebar) {
+        sidebar.classList.toggle('open');
+    }
+    if (overlay) {
+        overlay.classList.toggle('show');
+    }
+}
+
+// Close sidebar when clicking a nav item on mobile
+function closeSidebarOnMobile() {
+    if (window.innerWidth <= 768) {
+        toggleSidebar();
+    }
+}
+
 // ==================== TABS ====================
 function setupTabs() {
     const navItems = document.querySelectorAll('.nav-item');
@@ -170,6 +190,9 @@ function setupTabs() {
             
             const tabId = this.dataset.tab;
             document.getElementById(`tab-${tabId}`).classList.add('active');
+            
+            // Close sidebar on mobile after clicking
+            closeSidebarOnMobile();
             
             if (tabId === 'collection') {
                 loadCollection();

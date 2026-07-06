@@ -10,11 +10,16 @@
     <!-- Header -->
     <header class="user-header">
         <div class="header-content">
+            <button class="menu-toggle-mobile" onclick="toggleUserMenu()">
+                <span class="hamburger-line"></span>
+                <span class="hamburger-line"></span>
+                <span class="hamburger-line"></span>
+            </button>
             <div class="brand">
                 <h1>🎨 PromptPro</h1>
                 <span class="brand-sub">AI Image Generator</span>
             </div>
-            <nav class="header-nav">
+            <nav class="header-nav" id="userNav">
                 <a href="#" class="active">Home</a>
                 <a href="#gallery">Gallery</a>
                 <a href="#about">About</a>
