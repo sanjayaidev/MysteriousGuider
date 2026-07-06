@@ -47,6 +47,46 @@ async function verifyToken(req, res, next) {
     }
 }
 
+// Refresh token
+async function refreshToken(req, res, next) {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) {
+            return res.status(401).json({ error: 'No token provided' });
+        }
+        
+        const decoded = jwt.verify(token, JWT_SECRET);
+        
+        const session = await pool.query(
+            'SELECT * FROM sessions WHERE token = $1 AND expires_at > NOW()',
+            [token]
+        );
+        
+        if (session.rows.length === 0) {
+            return res.status(401).json({ error: 'Invalid or expired session' });
+        }
+        
+        const newToken = jwt.sign(
+            { userId: decoded.userId, isAdmin: decoded.isAdmin || false },
+            JWT_SECRET,
+            { expiresIn: '7d' }
+        );
+        
+        const expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + 7);
+        
+        await pool.query(
+            'UPDATE sessions SET token = $1, expires_at = $2 WHERE token = $3',
+            [newToken, expiresAt, token]
+        );
+        
+        req.newToken = newToken;
+        next();
+    } catch (error) {
+        return res.status(401).json({ error: 'Invalid token' });
+    }
+}
+
 // Verify admin
 function verifyAdmin(req, res, next) {
     if (!req.isAdmin) {
@@ -68,6 +108,7 @@ async function comparePassword(password, hash) {
 module.exports = {
     generateToken,
     verifyToken,
+    refreshToken,
     verifyAdmin,
     hashPassword,
     comparePassword

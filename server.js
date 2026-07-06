@@ -229,6 +229,77 @@ app.post('/api/auth/logout', async (req, res) => {
     }
 });
 
+// ==================== TOKEN REFRESH ENDPOINT ====================
+app.post('/api/auth/refresh', async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) {
+            return res.status(401).json({ error: 'No token provided' });
+        }
+        
+        // Verify existing token
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        
+        // Check if session exists and is valid
+        const session = await pool.query(
+            'SELECT * FROM sessions WHERE token = $1 AND expires_at > NOW()',
+            [token]
+        );
+        
+        if (session.rows.length === 0) {
+            return res.status(401).json({ error: 'Invalid or expired session' });
+        }
+        
+        // Generate new token
+        const newToken = jwt.sign(
+            { userId: decoded.userId, isAdmin: decoded.isAdmin || false },
+            process.env.JWT_SECRET,
+            { expiresIn: '7d' }
+        );
+        
+        // Update session
+        const expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + 7);
+        
+        await pool.query(
+            'UPDATE sessions SET token = $1, expires_at = $2 WHERE token = $3',
+            [newToken, expiresAt, token]
+        );
+        
+        res.json({
+            success: true,
+            token: newToken
+        });
+    } catch (error) {
+        console.error('Token refresh error:', error);
+        res.status(401).json({ error: 'Failed to refresh token' });
+    }
+});
+
+// ==================== SESSION EXTENSION MIDDLEWARE ====================
+async function extendSession(req, res, next) {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (token) {
+        try {
+            // Extend session expiry by 7 days on activity
+            const expiresAt = new Date();
+            expiresAt.setDate(expiresAt.getDate() + 7);
+            
+            await pool.query(
+                'UPDATE sessions SET expires_at = $1 WHERE token = $2',
+                [expiresAt, token]
+            );
+        } catch (error) {
+            // Silently fail - don't block request
+        }
+    }
+    next();
+}
+
+// Apply session extension middleware to admin routes
+app.use('/api/admin', extendSession);
+app.use('/api/auth/refresh', extendSession);
+
 // ==================== GOOGLE DRIVE ROUTES ====================
 
 // Initiate Google Drive OAuth

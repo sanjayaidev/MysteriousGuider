@@ -8,6 +8,7 @@ let deletingId = null;
 let token = null;
 let currentImageUrl = null;
 let driveConnected = false;
+let refreshTimer = null;
 
 // ==================== DOM REFS ====================
 const loginScreen = document.getElementById('loginScreen');
@@ -16,7 +17,49 @@ const loginForm = document.getElementById('loginForm');
 const passwordInput = document.getElementById('passwordInput');
 const loginError = document.getElementById('loginError');
 
-// ==================== AUTH ====================
+// ==================== AUTH & SESSION MANAGEMENT ====================
+// Check for existing session on load
+document.addEventListener('DOMContentLoaded', async () => {
+    const savedToken = localStorage.getItem('adminToken');
+    const tokenExpiry = localStorage.getItem('adminTokenExpiry');
+    
+    if (savedToken && tokenExpiry) {
+        const expiry = new Date(parseInt(tokenExpiry));
+        const now = new Date();
+        
+        // Check if token is still valid (with 1 hour buffer)
+        if (expiry > now && (expiry - now) > 3600000) {
+            token = savedToken;
+            
+            // Verify token with server
+            try {
+                const response = await fetch('/api/auth/verify', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await response.json();
+                
+                if (data.valid) {
+                    // Session is valid, show dashboard
+                    loginScreen.style.display = 'none';
+                    dashboardScreen.style.display = 'block';
+                    initDashboard();
+                    
+                    // Auto-refresh token periodically
+                    startTokenRefreshTimer();
+                    return;
+                }
+            } catch (error) {
+                console.error('Token verification failed:', error);
+            }
+        }
+    }
+    
+    // No valid session, show login
+    loginScreen.style.display = 'flex';
+    dashboardScreen.style.display = 'none';
+});
+
+// ==================== LOGIN ====================
 loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const password = passwordInput.value;
@@ -32,9 +75,19 @@ loginForm.addEventListener('submit', async (e) => {
         
         if (data.success) {
             token = data.token;
+            
+            // Store token with expiry (7 days from now)
+            const expiry = new Date();
+            expiry.setDate(expiry.getDate() + 7);
+            localStorage.setItem('adminToken', token);
+            localStorage.setItem('adminTokenExpiry', expiry.getTime().toString());
+            
             loginScreen.style.display = 'none';
             dashboardScreen.style.display = 'block';
             initDashboard();
+            
+            // Start auto-refresh timer
+            startTokenRefreshTimer();
         } else {
             loginError.textContent = 'Invalid password. Please try again.';
         }
@@ -43,7 +96,61 @@ loginForm.addEventListener('submit', async (e) => {
     }
 });
 
+// ==================== TOKEN REFRESH ====================
+function startTokenRefreshTimer() {
+    // Clear any existing timer
+    if (refreshTimer) {
+        clearInterval(refreshTimer);
+    }
+    
+    // Refresh token every 6 hours (or before expiry)
+    refreshTimer = setInterval(async () => {
+        try {
+            const response = await fetch('/api/auth/refresh', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            
+            const data = await response.json();
+            if (data.success) {
+                token = data.token;
+                const expiry = new Date();
+                expiry.setDate(expiry.getDate() + 7);
+                localStorage.setItem('adminToken', token);
+                localStorage.setItem('adminTokenExpiry', expiry.getTime().toString());
+                console.log('Token refreshed successfully');
+            }
+        } catch (error) {
+            console.error('Token refresh failed:', error);
+            // Don't logout immediately, try again later
+        }
+    }, 6 * 60 * 60 * 1000); // 6 hours
+}
+
+// ==================== LOGOUT ====================
 function logout() {
+    // Clear timer
+    if (refreshTimer) {
+        clearInterval(refreshTimer);
+        refreshTimer = null;
+    }
+    
+    // Call logout API
+    if (token) {
+        fetch('/api/auth/logout', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        }).catch(console.error);
+    }
+    
+    // Clear local storage
+    localStorage.removeItem('adminToken');
+    localStorage.removeItem('adminTokenExpiry');
+    
     token = null;
     dashboardScreen.style.display = 'none';
     loginScreen.style.display = 'flex';
@@ -91,7 +198,7 @@ function setupTabs() {
     });
 }
 
-// ==================== API HELPERS ====================
+// ==================== API HELPERS (Updated) ====================
 async function apiFetch(url, options = {}) {
     const headers = {
         'Content-Type': 'application/json',
@@ -99,12 +206,81 @@ async function apiFetch(url, options = {}) {
         ...options.headers
     };
     
-    const response = await fetch(url, { ...options, headers });
-    if (response.status === 401) {
-        logout();
-        throw new Error('Session expired');
+    try {
+        const response = await fetch(url, { ...options, headers });
+        
+        if (response.status === 401) {
+            // Try to refresh token
+            try {
+                const refreshResponse = await fetch('/api/auth/refresh', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const refreshData = await refreshResponse.json();
+                
+                if (refreshData.success) {
+                    token = refreshData.token;
+                    const expiry = new Date();
+                    expiry.setDate(expiry.getDate() + 7);
+                    localStorage.setItem('adminToken', token);
+                    localStorage.setItem('adminTokenExpiry', expiry.getTime().toString());
+                    
+                    // Retry original request
+                    const retryResponse = await fetch(url, {
+                        ...options,
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`,
+                            ...options.headers
+                        }
+                    });
+                    return retryResponse;
+                }
+            } catch (refreshError) {
+                console.error('Refresh failed:', refreshError);
+            }
+            
+            // If refresh fails, logout
+            logout();
+            throw new Error('Session expired');
+        }
+        
+        return response;
+    } catch (error) {
+        if (error.message === 'Session expired') {
+            throw error;
+        }
+        console.error('API fetch error:', error);
+        throw error;
     }
-    return response;
+}
+
+// ==================== INIT DASHBOARD (Updated) ====================
+function initDashboard() {
+    loadCategories();
+    loadRecentPrompts();
+    loadCollection();
+    loadStats();
+    loadSettings();
+    loadProfile();
+    loadDriveStatus();
+    loadUsageData();
+    setupTabs();
+    setupImageUpload();
+    
+    // Update last activity on user interactions
+    document.addEventListener('click', updateLastActivity);
+    document.addEventListener('keydown', updateLastActivity);
+}
+
+function updateLastActivity() {
+    // Update session expiry on activity
+    if (token) {
+        fetch('/api/auth/refresh', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+        }).catch(() => {});
+    }
 }
 
 // ==================== IMAGE UPLOAD (ImgBB) ====================
