@@ -407,6 +407,26 @@ if (localStorage.getItem('driveConnected') === 'true') {
     btn.classList.add('connected');
 }
 
+// ==================== MOBILE MENU TOGGLE ====================
+function toggleUserMenu() {
+    const nav = document.getElementById('userNav');
+    if (nav) {
+        nav.classList.toggle('show');
+    }
+}
+
+// Close menu when clicking a link on mobile
+document.querySelectorAll('.header-nav a').forEach(link => {
+    link.addEventListener('click', () => {
+        if (window.innerWidth <= 768) {
+            const nav = document.getElementById('userNav');
+            if (nav) {
+                nav.classList.remove('show');
+            }
+        }
+    });
+});
+
 // ==================== CLOSE MODALS ON OUTSIDE CLICK ====================
 window.onclick = function(event) {
     if (event.target === generationModal) {

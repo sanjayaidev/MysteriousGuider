@@ -21,8 +21,21 @@
 
     <!-- Admin Dashboard -->
     <div id="dashboardScreen" class="dashboard-container">
+        <!-- Mobile Header -->
+        <div class="mobile-header">
+            <button class="menu-toggle" onclick="toggleSidebar()">
+                <span class="hamburger-line"></span>
+                <span class="hamburger-line"></span>
+                <span class="hamburger-line"></span>
+            </button>
+            <div class="mobile-brand">
+                <h2>📋 PromptPro</h2>
+                <span class="brand-sub">Admin Panel</span>
+            </div>
+        </div>
+
         <!-- Sidebar -->
-        <div class="sidebar">
+        <div class="sidebar" id="sidebar">
             <div class="sidebar-brand">
                 <h2>📋 PromptPro</h2>
                 <span class="brand-sub">Admin Panel</span>
@@ -52,6 +65,9 @@
                 </button>
             </div>
         </div>
+
+        <!-- Overlay for mobile -->
+        <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
 
         <!-- Main Content -->
         <div class="main-content">
