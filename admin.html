@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel - Prompt Manager</title>
+    <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+    <!-- Login Screen -->
+    <div id="loginScreen" class="login-container">
+        <div class="login-box">
+            <h1>🔐 Admin Login</h1>
+            <form id="loginForm">
+                <input type="password" id="passwordInput" placeholder="Enter admin password" required>
+                <button type="submit">Login</button>
+                <div id="loginError" class="error-message"></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Admin Dashboard -->
+    <div id="dashboardScreen" style="display: none;">
+        <!-- Header -->
+        <header class="admin-header">
+            <div class="header-content">
+                <h1>📋 Prompt Manager</h1>
+                <div class="header-actions">
+                    <button onclick="openAddModal()" class="btn-primary">+ Add New Prompt</button>
+                    <button onclick="logout()" class="btn-secondary">Logout</button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Filters -->
+        <div class="filters-bar">
+            <div class="filters-content">
+                <input type="text" id="searchInput" placeholder="🔍 Search prompts..." oninput="loadPrompts()">
+                <select id="categoryFilter" onchange="loadPrompts()">
+                    <option value="">All Categories</option>
+                </select>
+                <select id="limitFilter" onchange="loadPrompts()">
+                    <option value="10">10 per page</option>
+                    <option value="20" selected>20 per page</option>
+                    <option value="50">50 per page</option>
+                    <option value="100">100 per page</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Prompts Table -->
+        <div class="table-container">
+            <table id="promptsTable">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Headline</th>
+                        <th>Category</th>
+                        <th>Sub-Category</th>
+                        <th>Images</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="promptsBody">
+                    <tr>
+                        <td colspan="7" class="loading-text">Loading prompts...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Pagination -->
+        <div class="pagination-container">
+            <button onclick="changePage('prev')" id="prevBtn" class="btn-pagination">← Previous</button>
+            <span id="pageInfo">Page 1 of 1</span>
+            <button onclick="changePage('next')" id="nextBtn" class="btn-pagination">Next →</button>
+        </div>
+    </div>
+
+    <!-- Add/Edit Prompt Modal -->
+    <div id="promptModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">Add New Prompt</h2>
+                <span class="close" onclick="closeModal()">&times;</span>
+            </div>
+            <form id="promptForm">
+                <input type="hidden" id="promptId">
+                
+                <div class="form-group">
+                    <label>Headline *</label>
+                    <input type="text" id="headline" required placeholder="Enter prompt headline">
+                </div>
+
+                <div class="form-group">
+                    <label>Description</label>
+                    <textarea id="description" rows="2" placeholder="Brief description"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label>Full Prompt *</label>
+                    <textarea id="fullPrompt" rows="4" required placeholder="Enter the full prompt text"></textarea>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Category *</label>
+                        <select id="category" required onchange="updateSubCategories()">
+                            <option value="">Select Category</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Sub-Category</label>
+                        <input type="text" id="subCategory" placeholder="e.g., Ocean, Forest">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Tags (comma separated)</label>
+                    <input type="text" id="tags" placeholder="e.g., sunset, ocean, golden hour">
+                </div>
+
+                <div class="form-group">
+                    <label>Demo Image URL</label>
+                    <input type="url" id="demoImage" placeholder="https://example.com/image.jpg">
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Max Images Allowed</label>
+                        <select id="maxImages">
+                            <option value="1">1</option>
+                            <option value="2">2</option>
+                            <option value="3">3</option>
+                            <option value="4">4+</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Status</label>
+                        <select id="isActive">
+                            <option value="true">Active</option>
+                            <option value="false">Inactive</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="modal-actions">
+                    <button type="button" onclick="closeModal()" class="btn-secondary">Cancel</button>
+                    <button type="submit" class="btn-primary">Save Prompt</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div id="deleteModal" class="modal">
+        <div class="modal-content delete-modal">
+            <div class="modal-header">
+                <h2>Confirm Delete</h2>
+                <span class="close" onclick="closeDeleteModal()">&times;</span>
+            </div>
+            <p>Are you sure you want to delete this prompt? This action cannot be undone.</p>
+            <div class="modal-actions">
+                <button onclick="closeDeleteModal()" class="btn-secondary">Cancel</button>
+                <button onclick="confirmDelete()" class="btn-danger">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="admin.js"></script>
+</body>
+</html>
