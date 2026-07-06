@@ -5,24 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Panel - Prompt Manager</title>
     <link rel="stylesheet" href="admin.css">
-    <script>
-        // Check for existing session immediately before page renders
-        (function() {
-            const savedToken = localStorage.getItem('adminToken');
-            const tokenExpiry = localStorage.getItem('adminTokenExpiry');
-            
-            if (savedToken && tokenExpiry) {
-                const expiry = new Date(parseInt(tokenExpiry));
-                const now = new Date();
-                
-                // Check if token is still valid (with 1 hour buffer)
-                if (expiry > now && (expiry - now) > 3600000) {
-                    // Session is valid, add class to html element to show dashboard via CSS
-                    document.documentElement.className = 'session-valid';
-                }
-            }
-        })();
-    </script>
 </head>
 <body>
     <!-- Login Screen -->

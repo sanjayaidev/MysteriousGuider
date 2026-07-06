@@ -21,36 +21,26 @@ const loginError = document.getElementById('loginError');
 // Check for existing session on load
 document.addEventListener('DOMContentLoaded', async () => {
     const savedToken = localStorage.getItem('adminToken');
-    const tokenExpiry = localStorage.getItem('adminTokenExpiry');
     
-    if (savedToken && tokenExpiry) {
-        const expiry = new Date(parseInt(tokenExpiry));
-        const now = new Date();
+    if (savedToken) {
+        token = savedToken;
         
-        // Check if token is still valid (with 1 hour buffer)
-        if (expiry > now && (expiry - now) > 3600000) {
-            token = savedToken;
+        // Verify token with server
+        try {
+            const response = await fetch('/api/auth/verify', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const data = await response.json();
             
-            // Verify token with server
-            try {
-                const response = await fetch('/api/auth/verify', {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                const data = await response.json();
-                
-                if (data.valid) {
-                    // Session is valid, show dashboard
-                    loginScreen.style.display = 'none';
-                    dashboardScreen.style.display = 'block';
-                    initDashboard();
-                    
-                    // Auto-refresh token periodically
-                    startTokenRefreshTimer();
-                    return;
-                }
-            } catch (error) {
-                console.error('Token verification failed:', error);
+            if (data.valid) {
+                // Session is valid, show dashboard
+                loginScreen.style.display = 'none';
+                dashboardScreen.style.display = 'block';
+                initDashboard();
+                return;
             }
+        } catch (error) {
+            console.error('Token verification failed:', error);
         }
     }
     
@@ -60,7 +50,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     // Clear any invalid/expired tokens from localStorage
     localStorage.removeItem('adminToken');
-    localStorage.removeItem('adminTokenExpiry');
 });
 
 // ==================== LOGIN ====================
@@ -80,19 +69,13 @@ loginForm.addEventListener('submit', async (e) => {
         if (data.success) {
             token = data.token;
             
-            // Store token with expiry (7 days from now) in localStorage for session persistence
-            const expiry = new Date();
-            expiry.setDate(expiry.getDate() + 7);
+            // Store token in localStorage for session persistence
             localStorage.setItem('adminToken', token);
-            localStorage.setItem('adminTokenExpiry', expiry.getTime().toString());
             
             // Redirect to admin dashboard (hide login, show dashboard)
             loginScreen.style.display = 'none';
             dashboardScreen.style.display = 'block';
             initDashboard();
-            
-            // Start auto-refresh timer
-            startTokenRefreshTimer();
         } else {
             loginError.textContent = 'Invalid password. Please try again.';
         }
@@ -121,10 +104,7 @@ function startTokenRefreshTimer() {
             const data = await response.json();
             if (data.success) {
                 token = data.token;
-                const expiry = new Date();
-                expiry.setDate(expiry.getDate() + 7);
                 localStorage.setItem('adminToken', token);
-                localStorage.setItem('adminTokenExpiry', expiry.getTime().toString());
                 console.log('Token refreshed successfully');
             }
         } catch (error) {
@@ -154,7 +134,6 @@ function logout() {
     
     // Clear local storage
     localStorage.removeItem('adminToken');
-    localStorage.removeItem('adminTokenExpiry');
     
     token = null;
     dashboardScreen.style.display = 'none';
@@ -225,10 +204,7 @@ async function apiFetch(url, options = {}) {
                 
                 if (refreshData.success) {
                     token = refreshData.token;
-                    const expiry = new Date();
-                    expiry.setDate(expiry.getDate() + 7);
                     localStorage.setItem('adminToken', token);
-                    localStorage.setItem('adminTokenExpiry', expiry.getTime().toString());
                     
                     // Retry original request
                     const retryResponse = await fetch(url, {

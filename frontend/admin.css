@@ -147,15 +147,6 @@ body {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
 }
 
-/* Hide login when dashboard is shown (for session persistence) */
-html.session-valid #loginScreen {
-    display: none !important;
-}
-
-html.session-valid .dashboard-container {
-    display: block !important;
-}
-
 .dashboard-container {
     display: none;
 }
