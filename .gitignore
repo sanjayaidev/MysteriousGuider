@@ -2,45 +2,52 @@
 # Dependencies
 node_modules/
 
-# Build artifacts
+# Build artifacts and compiled files
+*.o
+*.obj
+*.out
+*.pyc
+__pycache__/
+*.class
+*.dll
+*.so
+*.a
+*.exe
+
+# Distribution and build directories
 dist/
 build/
 target/
+coverage/
+htmlcov/
 
-# Logs and temp files
-*.log
-*.tmp
-
-# Environment
+# Environment and cache
+.venv/
+venv/
 .env
 .env.local
 .env.*
+.mypy_cache/
+.pytest_cache/
+.gradle/
+.nyc_output/
+.coverage
 
-# Editors
+# Editors and IDEs
 .vscode/
 .idea/
+*.swp
+*.swo
+*.tmp
 
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
+# System files
+.DS_Store
+Thumbs.db
 
-# Java
-*.class
-*.jar
-*.war
-*.ear
+# Logs
+*.log
 
-# C/C++
-*.o
-*.obj
-*.so
-*.a
-*.dll
-*.exe
-
-# Compression
+# Compressed files
 *.zip
 *.gz
 *.tar
@@ -63,4 +70,5 @@ __pycache__/
 *.tar.bz2
 *.tar.xz
 *.tar.zst
+
 ```
