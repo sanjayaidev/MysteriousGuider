@@ -57,6 +57,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     // No valid session, show login
     loginScreen.style.display = 'flex';
     dashboardScreen.style.display = 'none';
+    
+    // Clear any invalid/expired tokens from localStorage
+    localStorage.removeItem('adminToken');
+    localStorage.removeItem('adminTokenExpiry');
 });
 
 // ==================== LOGIN ====================
@@ -76,12 +80,13 @@ loginForm.addEventListener('submit', async (e) => {
         if (data.success) {
             token = data.token;
             
-            // Store token with expiry (7 days from now)
+            // Store token with expiry (7 days from now) in localStorage for session persistence
             const expiry = new Date();
             expiry.setDate(expiry.getDate() + 7);
             localStorage.setItem('adminToken', token);
             localStorage.setItem('adminTokenExpiry', expiry.getTime().toString());
             
+            // Redirect to admin dashboard (hide login, show dashboard)
             loginScreen.style.display = 'none';
             dashboardScreen.style.display = 'block';
             initDashboard();
