@@ -209,4 +209,210 @@ function setupUserUpload() {
     
     fileInput.addEventListener('change', () => {
         if (fileInput.files.length) {
-            handleUserImageUpload(fileInput.f
+            handleUserImageUpload(fileInput.files[0]);
+        }
+    });
+}
+
+function handleUserImageUpload(file) {
+    // Validate file size (10MB)
+    if (file.size > 10 * 1024 * 1024) {
+        alert('File size must be less than 10MB');
+        document.getElementById('userImageInput').value = '';
+        return;
+    }
+    
+    // Validate file type
+    const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    if (!validTypes.includes(file.type)) {
+        alert('Please upload a valid image (JPG, PNG, WEBP, GIF)');
+        document.getElementById('userImageInput').value = '';
+        return;
+    }
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const imageData = e.target.result;
+        uploadedImageData = imageData;
+        
+        const preview = document.getElementById('uploadPreview');
+        preview.src = imageData;
+        preview.style.display = 'block';
+        document.getElementById('uploadArea').querySelector('.upload-placeholder').style.display = 'none';
+        document.getElementById('removeImageBtn').style.display = 'inline-block';
+    };
+    reader.readAsDataURL(file);
+}
+
+function removeUploadedImage() {
+    uploadedImageData = null;
+    document.getElementById('uploadPreview').style.display = 'none';
+    document.getElementById('uploadArea').querySelector('.upload-placeholder').style.display = 'block';
+    document.getElementById('removeImageBtn').style.display = 'none';
+    document.getElementById('userImageInput').value = '';
+}
+
+// ==================== START GENERATION ====================
+async function startGeneration() {
+    if (!uploadedImageData) {
+        alert('Please upload an image first!');
+        return;
+    }
+    
+    const promptId = selectedPromptId;
+    const model = document.getElementById('modelSelect').value;
+    const negativePrompt = document.getElementById('negativePrompt').value;
+    const guidanceScale = document.getElementById('guidanceScale').value;
+    const steps = document.getElementById('steps').value;
+    
+    const generateBtn = document.getElementById('generateBtn');
+    generateBtn.disabled = true;
+    generateBtn.textContent = '⏳ Generating...';
+    generationInProgress = true;
+    
+    try {
+        // Close generation modal and open result modal
+        generationModal.style.display = 'none';
+        document.getElementById('resultModal').style.display = 'block';
+        document.getElementById('resultLoading').style.display = 'flex';
+        document.getElementById('resultImage').style.display = 'none';
+        
+        const response = await fetch('/api/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                promptId,
+                imageData: uploadedImageData,
+                model: model === 'auto' ? null : model,
+                negativePrompt: negativePrompt || null,
+                guidanceScale: parseFloat(guidanceScale),
+                steps: parseInt(steps)
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            currentResultUrl = data.imageUrl;
+            document.getElementById('resultImage').src = data.imageUrl;
+            document.getElementById('resultImage').style.display = 'block';
+            document.getElementById('resultLoading').style.display = 'none';
+        } else {
+            throw new Error(data.error || 'Generation failed');
+        }
+    } catch (error) {
+        console.error('Generation error:', error);
+        alert('Failed to generate image: ' + error.message);
+        document.getElementById('resultLoading').style.display = 'none';
+        document.getElementById('resultLoading').innerHTML = `
+            <div style="text-align: center; padding: 40px;">
+                <span style="font-size: 48px;">❌</span>
+                <p style="color: #e74c3c; margin-top: 10px;">Generation failed</p>
+                <small style="color: #999;">${error.message}</small>
+                <br><br>
+                <button onclick="closeResultModal(); resetGenerationForm();" class="btn-secondary">Close</button>
+            </div>
+        `;
+    } finally {
+        generateBtn.disabled = false;
+        generateBtn.textContent = '🚀 Generate Image';
+        generationInProgress = false;
+    }
+}
+
+// ==================== RESULT MODAL ====================
+function closeResultModal() {
+    resultModal.style.display = 'none';
+    document.body.style.overflow = 'auto';
+    // Reset loading state
+    document.getElementById('resultLoading').style.display = 'flex';
+    document.getElementById('resultLoading').innerHTML = `
+        <div class="spinner"></div>
+        <p>Generating your image...</p>
+        <small>This may take 30-60 seconds</small>
+    `;
+    document.getElementById('resultImage').style.display = 'none';
+    resetGenerationForm();
+}
+
+function downloadResult() {
+    if (currentResultUrl) {
+        const link = document.createElement('a');
+        link.href = currentResultUrl;
+        link.download = `generated-${Date.now()}.jpg`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+}
+
+function regenerate() {
+    closeResultModal();
+    // Reopen generation modal
+    if (selectedPromptId) {
+        setTimeout(() => openGenerationModal(selectedPromptId), 300);
+    }
+}
+
+// ==================== PARAMETER DISPLAY ====================
+document.getElementById('guidanceScale').addEventListener('input', function() {
+    document.getElementById('guidanceValue').textContent = this.value;
+});
+
+document.getElementById('steps').addEventListener('input', function() {
+    document.getElementById('stepsValue').textContent = this.value;
+});
+
+// ==================== UTILITIES ====================
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+// ==================== GOOGLE DRIVE INTEGRATION ====================
+document.getElementById('driveLoginBtn').addEventListener('click', function() {
+    // Placeholder for Google Drive integration
+    if (this.classList.contains('connected')) {
+        this.textContent = '🔗 Connect Google Drive';
+        this.classList.remove('connected');
+        localStorage.removeItem('driveConnected');
+    } else {
+        // Simulate OAuth flow
+        alert('Google Drive integration coming soon! Configure in Settings first.');
+        // In production, you'd redirect to Google OAuth
+        this.textContent = '✅ Connected';
+        this.classList.add('connected');
+        localStorage.setItem('driveConnected', 'true');
+    }
+});
+
+// Check saved drive connection
+if (localStorage.getItem('driveConnected') === 'true') {
+    const btn = document.getElementById('driveLoginBtn');
+    btn.textContent = '✅ Connected';
+    btn.classList.add('connected');
+}
+
+// ==================== CLOSE MODALS ON OUTSIDE CLICK ====================
+window.onclick = function(event) {
+    if (event.target === generationModal) {
+        closeGenerationModal();
+    }
+    if (event.target === resultModal) {
+        closeResultModal();
+    }
+};
