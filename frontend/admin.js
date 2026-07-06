@@ -7,6 +7,7 @@ let editingId = null;
 let deletingId = null;
 let token = null;
 let currentImageUrl = null;
+let driveConnected = false;
 
 // ==================== DOM REFS ====================
 const loginScreen = document.getElementById('loginScreen');
@@ -21,7 +22,7 @@ loginForm.addEventListener('submit', async (e) => {
     const password = passwordInput.value;
     
     try {
-        const response = await fetch('/api/admin/login', {
+        const response = await fetch('/api/auth/admin/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ password })
@@ -58,6 +59,8 @@ function initDashboard() {
     loadStats();
     loadSettings();
     loadProfile();
+    loadDriveStatus();
+    loadUsageData();
     setupTabs();
     setupImageUpload();
 }
@@ -69,20 +72,20 @@ function setupTabs() {
     
     navItems.forEach(item => {
         item.addEventListener('click', function() {
-            // Remove active from all nav items
             navItems.forEach(n => n.classList.remove('active'));
             this.classList.add('active');
             
-            // Hide all tabs
             tabContents.forEach(t => t.classList.remove('active'));
             
-            // Show selected tab
             const tabId = this.dataset.tab;
             document.getElementById(`tab-${tabId}`).classList.add('active');
             
-            // Refresh collection if switching to it
             if (tabId === 'collection') {
                 loadCollection();
+            }
+            if (tabId === 'settings') {
+                loadDriveStatus();
+                loadUsageData();
             }
         });
     });
@@ -111,14 +114,12 @@ function setupImageUpload() {
         const file = this.files[0];
         if (!file) return;
         
-        // Validate file size (5MB)
         if (file.size > 5 * 1024 * 1024) {
             alert('File size must be less than 5MB');
             this.value = '';
             return;
         }
         
-        // Validate file type
         const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
         if (!validTypes.includes(file.type)) {
             alert('Please upload a valid image (JPG, PNG, GIF, WEBP)');
@@ -140,19 +141,17 @@ async function uploadToImgBB(file) {
     progressText.textContent = 'Preparing upload...';
     
     try {
-        // Get ImgBB API key from settings or use default
-        const apiKey = document.getElementById('imgbbApiKey').value || 'YOUR_IMGBB_API_KEY';
-        
+        // Use ImgBB API key from environment variable (passed via backend)
         const formData = new FormData();
-        formData.append('key', apiKey);
         formData.append('image', file);
         
         progressFill.style.width = '30%';
         progressText.textContent = 'Uploading to ImgBB...';
         
-        const response = await fetch('https://api.imgbb.com/1/upload', {
+        const response = await apiFetch('/api/upload/image', {
             method: 'POST',
-            body: formData
+            body: formData,
+            headers: {} // Remove Content-Type for FormData
         });
         
         progressFill.style.width = '80%';
@@ -161,11 +160,10 @@ async function uploadToImgBB(file) {
         const data = await response.json();
         
         if (data.success) {
-            const imageUrl = data.data.url;
+            const imageUrl = data.url;
             currentImageUrl = imageUrl;
             document.getElementById('demoImage').value = imageUrl;
             
-            // Show preview
             const preview = document.getElementById('demoImagePreview');
             preview.src = imageUrl;
             preview.style.display = 'block';
@@ -179,7 +177,7 @@ async function uploadToImgBB(file) {
                 progressBar.style.display = 'none';
             }, 2000);
         } else {
-            throw new Error(data.error?.message || 'Upload failed');
+            throw new Error(data.error || 'Upload failed');
         }
     } catch (error) {
         console.error('Upload error:', error);
@@ -203,11 +201,9 @@ async function loadCategories() {
         const response = await apiFetch('/api/admin/categories');
         const categories = await response.json();
         
-        // Populate category dropdown in editor
         const categorySelect = document.getElementById('category');
         categorySelect.innerHTML = '<option value="">Select Category</option>';
         
-        // Populate category dropdown in collection
         const collectionCategory = document.getElementById('collectionCategory');
         collectionCategory.innerHTML = '<option value="">All Categories</option>';
         
@@ -225,12 +221,6 @@ async function loadCategories() {
     } catch (error) {
         console.error('Error loading categories:', error);
     }
-}
-
-async function updateSubCategories() {
-    const category = document.getElementById('category').value;
-    if (!category) return;
-    // Sub-category is free text for now
 }
 
 // ==================== RECENT PROMPTS ====================
@@ -381,7 +371,6 @@ async function editPrompt(id) {
         const response = await apiFetch(`/api/admin/prompts/${id}`);
         const prompt = await response.json();
         
-        // Switch to editor tab
         document.querySelector('[data-tab="editor"]').click();
         
         document.getElementById('promptId').value = id;
@@ -394,7 +383,6 @@ async function editPrompt(id) {
         document.getElementById('maxImages').value = prompt.max_images_allowed;
         document.getElementById('isActive').value = prompt.is_active ? 'true' : 'false';
         
-        // Show image if exists
         if (prompt.demo_image_url) {
             currentImageUrl = prompt.demo_image_url;
             document.getElementById('demoImage').value = prompt.demo_image_url;
@@ -405,7 +393,6 @@ async function editPrompt(id) {
             document.getElementById('removeImageBtn').style.display = 'inline-block';
         }
         
-        // Scroll to form
         document.querySelector('.editor-form').scrollIntoView({ behavior: 'smooth' });
     } catch (error) {
         console.error('Error loading prompt for edit:', error);
@@ -451,55 +438,203 @@ async function confirmDelete() {
 // ==================== STATS ====================
 async function loadStats() {
     try {
-        const response = await apiFetch('/api/admin/prompts?limit=1');
-        const data = await response.json();
+        const response = await apiFetch('/api/admin/stats');
+        const stats = await response.json();
         
-        document.getElementById('totalPrompts').textContent = data.total || 0;
-        
-        // Get active prompts count
-        const activeResponse = await apiFetch('/api/admin/prompts?limit=1&search=&category=&is_active=true');
-        const activeData = await activeResponse.json();
-        document.getElementById('activePrompts').textContent = activeData.total || 0;
-        
-        // Get categories count
-        const catResponse = await apiFetch('/api/admin/categories');
-        const categories = await catResponse.json();
-        document.getElementById('totalCategories').textContent = categories.length || 0;
-        
-        // Placeholder for images generated
-        document.getElementById('totalImages').textContent = '0';
+        document.getElementById('totalPrompts').textContent = stats.totalPrompts || 0;
+        document.getElementById('activePrompts').textContent = stats.activePrompts || 0;
+        document.getElementById('totalCategories').textContent = stats.totalCategories || 0;
+        document.getElementById('totalImages').textContent = stats.totalImages || 0;
     } catch (error) {
         console.error('Error loading stats:', error);
     }
 }
 
-// ==================== SETTINGS ====================
-function loadSettings() {
-    // Load settings from localStorage
-    document.getElementById('imgbbApiKey').value = localStorage.getItem('imgbbApiKey') || '';
-    document.getElementById('nimEndpoint').value = localStorage.getItem('nimEndpoint') || '';
-    document.getElementById('nimApiKey').value = localStorage.getItem('nimApiKey') || '';
-    document.getElementById('driveFolderId').value = localStorage.getItem('driveFolderId') || '';
-    document.getElementById('serviceAccount').value = localStorage.getItem('serviceAccount') || '';
-    document.getElementById('defaultStorage').value = localStorage.getItem('defaultStorage') || 'imgbb';
+// ==================== DRIVE INTEGRATION ====================
+async function loadDriveStatus() {
+    try {
+        const response = await apiFetch('/api/drive/status');
+        const data = await response.json();
+        
+        driveConnected = data.connected;
+        updateDriveUI(data);
+    } catch (error) {
+        console.error('Error loading drive status:', error);
+    }
 }
 
-function saveSettings() {
-    localStorage.setItem('imgbbApiKey', document.getElementById('imgbbApiKey').value);
-    localStorage.setItem('nimEndpoint', document.getElementById('nimEndpoint').value);
-    localStorage.setItem('nimApiKey', document.getElementById('nimApiKey').value);
-    alert('Settings saved successfully!');
+function updateDriveUI(data) {
+    const connectBtn = document.getElementById('driveConnectBtn');
+    const disconnectBtn = document.getElementById('driveDisconnectBtn');
+    const statusText = document.getElementById('driveStatus');
+    const infoBox = document.getElementById('driveConnectionInfo');
+    
+    if (data.connected) {
+        connectBtn.style.display = 'none';
+        disconnectBtn.style.display = 'inline-block';
+        statusText.textContent = '✅ Connected';
+        statusText.className = 'drive-status-connected';
+        infoBox.style.display = 'block';
+        document.getElementById('driveExpiry').textContent = data.expires_at ? new Date(data.expires_at).toLocaleString() : 'N/A';
+    } else {
+        connectBtn.style.display = 'inline-block';
+        disconnectBtn.style.display = 'none';
+        statusText.textContent = '❌ Not connected';
+        statusText.className = 'drive-status-disconnected';
+        infoBox.style.display = 'none';
+    }
+}
+
+function connectDrive() {
+    // Open Google OAuth in a new window
+    const width = 600;
+    const height = 700;
+    const left = (window.screen.width - width) / 2;
+    const top = (window.screen.height - height) / 2;
+    
+    const popup = window.open(
+        '/api/drive/auth',
+        'Google Drive OAuth',
+        `width=${width},height=${height},left=${left},top=${top}`
+    );
+    
+    // Listen for the OAuth callback
+    window.addEventListener('message', handleDriveAuthMessage);
+}
+
+function handleDriveAuthMessage(event) {
+    if (event.data && event.data.type === 'drive_auth_complete') {
+        loadDriveStatus();
+        alert('Google Drive connected successfully!');
+    }
+}
+
+async function disconnectDrive() {
+    if (!confirm('Are you sure you want to disconnect Google Drive?')) return;
+    
+    try {
+        const response = await apiFetch('/api/drive/disconnect', {
+            method: 'POST'
+        });
+        
+        if (response.ok) {
+            alert('Google Drive disconnected successfully');
+            loadDriveStatus();
+        } else {
+            const error = await response.json();
+            alert(`Error: ${error.error}`);
+        }
+    } catch (error) {
+        console.error('Error disconnecting drive:', error);
+        alert('Failed to disconnect Drive');
+    }
+}
+
+// ==================== USAGE TRACKING ====================
+async function loadUsageData() {
+    try {
+        const response = await apiFetch('/api/admin/usage');
+        const data = await response.json();
+        
+        // Update stats cards
+        document.getElementById('totalUsers').textContent = data.totalUsers || 0;
+        document.getElementById('totalGenerations').textContent = data.totalGenerations || 0;
+        document.getElementById('totalImages').textContent = data.totalImages || 0;
+        document.getElementById('totalStorage').textContent = (data.totalStorage || 0).toFixed(2) + ' MB';
+        
+        // Update table
+        renderUsageTable(data.users || []);
+    } catch (error) {
+        console.error('Error loading usage data:', error);
+        document.getElementById('usageTableBody').innerHTML = '<tr><td colspan="8" class="loading-text">Error loading usage data</td></tr>';
+    }
+}
+
+function renderUsageTable(users) {
+    const tbody = document.getElementById('usageTableBody');
+    
+    if (!users || users.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="loading-text">No user data available</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = users.map(user => `
+        <tr>
+            <td><span class="user-name">${escapeHtml(user.name || 'N/A')}</span></td>
+            <td><span class="user-email">${escapeHtml(user.email)}</span></td>
+            <td><span class="badge badge-info">${user.total_generations || 0}</span></td>
+            <td>${user.total_images_generated || 0}</td>
+            <td>
+                <div class="tag-list">
+                    ${user.tools_used && user.tools_used.length > 0 
+                        ? user.tools_used.slice(0, 3).map(t => `<span class="tag-item">${escapeHtml(t)}</span>`).join('') 
+                        : '<span style="color: #999;">None</span>'}
+                    ${user.tools_used && user.tools_used.length > 3 ? `<span class="tag-item">+${user.tools_used.length - 3}</span>` : ''}
+                </div>
+            </td>
+            <td>
+                <div class="tag-list">
+                    ${user.templates_used && user.templates_used.length > 0 
+                        ? user.templates_used.slice(0, 3).map(t => `<span class="tag-item">${escapeHtml(t)}</span>`).join('') 
+                        : '<span style="color: #999;">None</span>'}
+                    ${user.templates_used && user.templates_used.length > 3 ? `<span class="tag-item">+${user.templates_used.length - 3}</span>` : ''}
+                </div>
+            </td>
+            <td>${(user.storage_used_mb || 0).toFixed(2)} MB</td>
+            <td>${user.last_active ? new Date(user.last_active).toLocaleDateString() : 'Never'}</td>
+        </tr>
+    `).join('');
+}
+
+function refreshUsage() {
+    loadUsageData();
+}
+
+function exportUsage() {
+    const table = document.getElementById('usageTable');
+    const rows = table.querySelectorAll('tr');
+    let csv = [];
+    
+    // Header
+    const headers = ['User', 'Email', 'Generations', 'Images', 'Tools Used', 'Templates', 'Storage (MB)', 'Last Active'];
+    csv.push(headers.join(','));
+    
+    // Data rows
+    rows.forEach(row => {
+        const cols = row.querySelectorAll('td');
+        if (cols.length > 0) {
+            const rowData = Array.from(cols).map(col => {
+                let text = col.textContent.trim();
+                // Handle comma in text
+                if (text.includes(',')) {
+                    text = `"${text}"`;
+                }
+                return text;
+            });
+            csv.push(rowData.join(','));
+        }
+    });
+    
+    // Download
+    const blob = new Blob([csv.join('\n')], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `usage_export_${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+}
+
+// ==================== SETTINGS ====================
+function loadSettings() {
+    document.getElementById('driveFolderId').value = localStorage.getItem('driveFolderId') || '';
 }
 
 function saveDriveSettings() {
     localStorage.setItem('driveFolderId', document.getElementById('driveFolderId').value);
-    localStorage.setItem('serviceAccount', document.getElementById('serviceAccount').value);
     alert('Drive settings saved successfully!');
-}
-
-function saveStorageSettings() {
-    localStorage.setItem('defaultStorage', document.getElementById('defaultStorage').value);
-    alert('Storage settings saved successfully!');
 }
 
 // ==================== PROFILE ====================

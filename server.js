@@ -647,7 +647,217 @@ app.get('/api/subcategories/:category', async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch sub-categories' });
     }
 });
+// ==================== IMAGE UPLOAD ENDPOINT ====================
+app.post('/api/upload/image', verifyToken, verifyAdmin, async (req, res) => {
+    try {
+        // Handle FormData upload
+        const formData = req.body;
+        const file = req.files?.image;
+        
+        if (!file) {
+            return res.status(400).json({ error: 'No image file provided' });
+        }
+        
+        // Upload to ImgBB using env var
+        const form = new FormData();
+        form.append('key', process.env.IMGBB_API_KEY);
+        form.append('image', file.data.toString('base64'));
+        
+        const response = await axios.post('https://api.imgbb.com/1/upload', form, {
+            headers: form.getHeaders()
+        });
+        
+        if (response.data.success) {
+            res.json({ success: true, url: response.data.data.url });
+        } else {
+            throw new Error('ImgBB upload failed');
+        }
+    } catch (error) {
+        console.error('Upload error:', error);
+        res.status(500).json({ error: 'Failed to upload image' });
+    }
+});
 
+// ==================== ADMIN STATS ENDPOINT ====================
+app.get('/api/admin/stats', verifyToken, verifyAdmin, async (req, res) => {
+    try {
+        const [promptsResult, activeResult, categoriesResult, imagesResult] = await Promise.all([
+            pool.query('SELECT COUNT(*) FROM prompts'),
+            pool.query('SELECT COUNT(*) FROM prompts WHERE is_active = true'),
+            pool.query('SELECT COUNT(*) FROM categories'),
+            pool.query('SELECT COALESCE(SUM(total_images_generated), 0) as total FROM usage_stats')
+        ]);
+        
+        res.json({
+            totalPrompts: parseInt(promptsResult.rows[0].count),
+            activePrompts: parseInt(activeResult.rows[0].count),
+            totalCategories: parseInt(categoriesResult.rows[0].count),
+            totalImages: parseInt(imagesResult.rows[0].total)
+        });
+    } catch (error) {
+        console.error('Error fetching stats:', error);
+        res.status(500).json({ error: 'Failed to fetch stats' });
+    }
+});
+
+// ==================== USAGE TRACKING ENDPOINT ====================
+app.get('/api/admin/usage', verifyToken, verifyAdmin, async (req, res) => {
+    try {
+        // Get all users with their usage stats
+        const usersResult = await pool.query(`
+            SELECT 
+                u.id,
+                u.email,
+                u.name,
+                COALESCE(us.total_generations, 0) as total_generations,
+                COALESCE(us.total_images_generated, 0) as total_images_generated,
+                COALESCE(us.tools_used, '{}') as tools_used,
+                COALESCE(us.templates_used, '{}') as templates_used,
+                COALESCE(us.storage_used_mb, 0) as storage_used_mb,
+                us.last_active
+            FROM users u
+            LEFT JOIN usage_stats us ON u.id = us.user_id
+            WHERE u.is_admin = false
+            ORDER BY us.last_active DESC NULLS LAST
+        `);
+        
+        // Get totals
+        const totalsResult = await pool.query(`
+            SELECT 
+                COUNT(DISTINCT u.id) as total_users,
+                COALESCE(SUM(us.total_generations), 0) as total_generations,
+                COALESCE(SUM(us.total_images_generated), 0) as total_images,
+                COALESCE(SUM(us.storage_used_mb), 0) as total_storage
+            FROM users u
+            LEFT JOIN usage_stats us ON u.id = us.user_id
+            WHERE u.is_admin = false
+        `);
+        
+        res.json({
+            users: usersResult.rows,
+            totalUsers: parseInt(totalsResult.rows[0].total_users),
+            totalGenerations: parseInt(totalsResult.rows[0].total_generations),
+            totalImages: parseInt(totalsResult.rows[0].total_images),
+            totalStorage: parseFloat(totalsResult.rows[0].total_storage)
+        });
+    } catch (error) {
+        console.error('Error fetching usage data:', error);
+        res.status(500).json({ error: 'Failed to fetch usage data' });
+    }
+});
+
+// ==================== DRIVE STATUS ENDPOINT ====================
+app.get('/api/drive/status', verifyToken, verifyAdmin, async (req, res) => {
+    try {
+        const result = await pool.query(
+            'SELECT access_token, expires_at FROM drive_connections WHERE expires_at > NOW() LIMIT 1'
+        );
+        
+        if (result.rows.length > 0) {
+            res.json({
+                connected: true,
+                expires_at: result.rows[0].expires_at
+            });
+        } else {
+            res.json({ connected: false });
+        }
+    } catch (error) {
+        console.error('Drive status error:', error);
+        res.status(500).json({ error: 'Failed to check Drive status' });
+    }
+});
+
+// ==================== DRIVE AUTH ENDPOINT ====================
+app.get('/api/drive/auth', async (req, res) => {
+    try {
+        const state = crypto.randomBytes(32).toString('hex');
+        
+        await pool.query(
+            'INSERT INTO oauth_states (state) VALUES ($1)',
+            [state]
+        );
+        
+        const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
+            `client_id=${process.env.GOOGLE_CLIENT_ID}&` +
+            `redirect_uri=${process.env.GOOGLE_REDIRECT_URI}&` +
+            `response_type=code&` +
+            `scope=https://www.googleapis.com/auth/drive.file&` +
+            `access_type=offline&` +
+            `state=${state}&` +
+            `prompt=consent`;
+        
+        res.redirect(authUrl);
+    } catch (error) {
+        console.error('Drive auth error:', error);
+        res.status(500).json({ error: 'Failed to initiate Drive auth' });
+    }
+});
+
+// ==================== DRIVE CALLBACK ENDPOINT ====================
+app.get('/api/drive/callback', async (req, res) => {
+    try {
+        const { code, state } = req.query;
+        
+        const stateResult = await pool.query(
+            'SELECT * FROM oauth_states WHERE state = $1 AND created_at > NOW() - INTERVAL \'10 minutes\'',
+            [state]
+        );
+        
+        if (stateResult.rows.length === 0) {
+            return res.status(400).json({ error: 'Invalid state' });
+        }
+        
+        const tokenResponse = await axios.post('https://oauth2.googleapis.com/token', {
+            code,
+            client_id: process.env.GOOGLE_CLIENT_ID,
+            client_secret: process.env.GOOGLE_CLIENT_SECRET,
+            redirect_uri: process.env.GOOGLE_REDIRECT_URI,
+            grant_type: 'authorization_code'
+        });
+        
+        const { access_token, refresh_token, expires_in } = tokenResponse.data;
+        
+        const expiresAt = new Date();
+        expiresAt.setSeconds(expiresAt.getSeconds() + expires_in);
+        
+        // Store globally (no user_id)
+        await pool.query(
+            `INSERT INTO drive_connections (access_token, refresh_token, expires_at)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (id) DO UPDATE SET
+             access_token = $1, refresh_token = $2, expires_at = $3, updated_at = NOW()`,
+            [access_token, refresh_token, expiresAt]
+        );
+        
+        await pool.query('DELETE FROM oauth_states WHERE state = $1', [state]);
+        
+        // Close popup and notify parent
+        res.send(`
+            <html>
+                <body>
+                    <script>
+                        window.opener.postMessage({ type: 'drive_auth_complete' }, '*');
+                        window.close();
+                    </script>
+                </body>
+            </html>
+        `);
+    } catch (error) {
+        console.error('Drive callback error:', error);
+        res.status(500).json({ error: 'Failed to connect Drive' });
+    }
+});
+
+// ==================== DRIVE DISCONNECT ENDPOINT ====================
+app.post('/api/drive/disconnect', verifyToken, verifyAdmin, async (req, res) => {
+    try {
+        await pool.query('DELETE FROM drive_connections');
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Drive disconnect error:', error);
+        res.status(500).json({ error: 'Failed to disconnect Drive' });
+    }
+});
 // ==================== GENERATION ROUTE ====================
 app.post('/api/generate', verifyToken, async (req, res) => {
     try {

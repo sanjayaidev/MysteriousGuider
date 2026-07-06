@@ -198,65 +198,96 @@
             </div>
 
             <!-- ========== TAB 3: SETTINGS ========== -->
-            <div id="tab-settings" class="tab-content">
-                <div class="tab-header">
-                    <h1>⚙️ Settings</h1>
-                    <p>Configure API keys and integrations</p>
+<div id="tab-settings" class="tab-content">
+    <div class="tab-header">
+        <h1>⚙️ Settings</h1>
+        <p>Configure integrations and manage system settings</p>
+    </div>
+
+    <div class="settings-container">
+        <!-- Drive Integration -->
+        <div class="settings-section">
+            <h3>💾 Google Drive Integration</h3>
+            <p style="color: #7f8c8d; font-size: 14px; margin-bottom: 20px;">
+                Connect Google Drive to store generated images. This is a global setting for the entire app.
+            </p>
+            <div class="settings-form">
+                <div class="form-group">
+                    <label>Drive Folder ID (Optional)</label>
+                    <input type="text" id="driveFolderId" placeholder="Enter Google Drive folder ID">
+                    <small>Images will be stored in this folder. Leave empty to use root.</small>
                 </div>
-
-                <div class="settings-container">
-                    <div class="settings-section">
-                        <h3>🔑 API Keys</h3>
-                        <div class="settings-form">
-                            <div class="form-group">
-                                <label>ImgBB API Key</label>
-                                <input type="password" id="imgbbApiKey" placeholder="Enter your ImgBB API key">
-                                <small>Get your key from <a href="https://api.imgbb.com/" target="_blank">ImgBB API</a></small>
-                            </div>
-                            <div class="form-group">
-                                <label>NIM Endpoint (Coming Soon)</label>
-                                <input type="text" id="nimEndpoint" placeholder="https://api.nim.com/v1/generate" disabled>
-                            </div>
-                            <div class="form-group">
-                                <label>NIM API Key (Coming Soon)</label>
-                                <input type="password" id="nimApiKey" placeholder="Enter NIM API key" disabled>
-                            </div>
-                            <button onclick="saveSettings()" class="btn-primary">Save Settings</button>
-                        </div>
-                    </div>
-
-                    <div class="settings-section">
-                        <h3>💾 Drive Integration</h3>
-                        <div class="settings-form">
-                            <div class="form-group">
-                                <label>Google Drive Folder ID</label>
-                                <input type="text" id="driveFolderId" placeholder="Enter Google Drive folder ID">
-                                <small>Store generated images in a Google Drive folder</small>
-                            </div>
-                            <div class="form-group">
-                                <label>Service Account JSON</label>
-                                <textarea id="serviceAccount" rows="4" placeholder='{"type": "service_account", ...}'></textarea>
-                            </div>
-                            <button onclick="saveDriveSettings()" class="btn-primary">Save Drive Settings</button>
-                        </div>
-                    </div>
-
-                    <div class="settings-section">
-                        <h3>🖼️ Storage Settings</h3>
-                        <div class="settings-form">
-                            <div class="form-group">
-                                <label>Default Image Storage</label>
-                                <select id="defaultStorage">
-                                    <option value="imgbb">ImgBB</option>
-                                    <option value="drive">Google Drive</option>
-                                    <option value="local">Local Storage</option>
-                                </select>
-                            </div>
-                            <button onclick="saveStorageSettings()" class="btn-primary">Save Storage Settings</button>
-                        </div>
-                    </div>
+                <div style="display: flex; gap: 10px; align-items: center; margin-top: 10px;">
+                    <button onclick="connectDrive()" class="btn-primary" id="driveConnectBtn">
+                        🔗 Connect Google Drive
+                    </button>
+                    <button onclick="disconnectDrive()" class="btn-danger" id="driveDisconnectBtn" style="display: none;">
+                        🔌 Disconnect
+                    </button>
+                    <span id="driveStatus" style="font-size: 14px; color: #7f8c8d;">Not connected</span>
+                </div>
+                <div id="driveConnectionInfo" style="margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 6px; display: none;">
+                    <p style="margin: 0; font-size: 14px;">✅ <strong>Connected</strong> - Images will be saved to Google Drive</p>
+                    <p style="margin: 5px 0 0; font-size: 12px; color: #7f8c8d;">Token expires: <span id="driveExpiry">-</span></p>
                 </div>
             </div>
+        </div>
+
+        <!-- Usage Tracking -->
+        <div class="settings-section">
+            <h3>📊 User Usage Tracking</h3>
+            <p style="color: #7f8c8d; font-size: 14px; margin-bottom: 20px;">
+                Monitor and manage user activity, generations, and storage usage.
+            </p>
+            
+            <!-- Stats Cards -->
+            <div class="stats-grid" style="margin-bottom: 25px;">
+                <div class="stat-card">
+                    <span class="stat-label">Total Users</span>
+                    <span class="stat-value" id="totalUsers">0</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-label">Total Generations</span>
+                    <span class="stat-value" id="totalGenerations">0</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-label">Total Images</span>
+                    <span class="stat-value" id="totalImages">0</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-label">Storage Used</span>
+                    <span class="stat-value" id="totalStorage">0 MB</span>
+                </div>
+            </div>
+
+            <!-- User Table -->
+            <div style="overflow-x: auto;">
+                <table class="usage-table" id="usageTable">
+                    <thead>
+                        <tr>
+                            <th>User</th>
+                            <th>Email</th>
+                            <th>Generations</th>
+                            <th>Images</th>
+                            <th>Tools Used</th>
+                            <th>Templates</th>
+                            <th>Storage</th>
+                            <th>Last Active</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usageTableBody">
+                        <tr><td colspan="8" class="loading-text">Loading usage data...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div style="margin-top: 15px; display: flex; gap: 10px;">
+                <button onclick="refreshUsage()" class="btn-secondary">🔄 Refresh</button>
+                <button onclick="exportUsage()" class="btn-secondary">📥 Export CSV</button>
+            </div>
+        </div>
+    </div>
+</div>
 
             <!-- ========== TAB 4: PROFILE ========== -->
             <div id="tab-profile" class="tab-content">

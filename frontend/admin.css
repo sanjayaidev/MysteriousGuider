@@ -4,7 +4,134 @@
     padding: 0;
     box-sizing: border-box;
 }
+/* ===== USAGE TABLE ===== */
+.usage-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+    background: white;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+}
 
+.usage-table thead {
+    background: #f8f9fa;
+    border-bottom: 2px solid #e1e5e9;
+}
+
+.usage-table th {
+    padding: 12px 15px;
+    text-align: left;
+    font-weight: 600;
+    color: #555;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.usage-table td {
+    padding: 12px 15px;
+    border-bottom: 1px solid #f0f2f4;
+    color: #333;
+}
+
+.usage-table tbody tr:hover {
+    background: #f8f9fa;
+}
+
+.usage-table .user-name {
+    font-weight: 600;
+    color: #2c3e50;
+}
+
+.usage-table .user-email {
+    color: #7f8c8d;
+    font-size: 13px;
+}
+
+.usage-table .badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    background: #667eea;
+    color: white;
+}
+
+.usage-table .badge-success {
+    background: #27ae60;
+}
+
+.usage-table .badge-warning {
+    background: #f39c12;
+}
+
+.usage-table .badge-danger {
+    background: #e74c3c;
+}
+
+.usage-table .badge-info {
+    background: #3498db;
+}
+
+.usage-table .tag-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.usage-table .tag-item {
+    background: #f0f2f5;
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    color: #555;
+}
+
+/* ===== DRIVE SETTINGS ===== */
+.drive-status-connected {
+    color: #27ae60;
+    font-weight: 600;
+}
+
+.drive-status-disconnected {
+    color: #e74c3c;
+    font-weight: 600;
+}
+
+#driveConnectionInfo {
+    border-left: 3px solid #27ae60;
+}
+
+/* ===== LOADING SHIMMER ===== */
+.shimmer {
+    animation: shimmer 1.5s ease-in-out infinite;
+    background: linear-gradient(90deg, #f0f2f5 25%, #e1e5e9 50%, #f0f2f5 75%);
+    background-size: 200% 100%;
+}
+
+@keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+}
+
+/* ===== RESPONSIVE TABLE ===== */
+@media (max-width: 768px) {
+    .usage-table {
+        font-size: 12px;
+    }
+    
+    .usage-table th,
+    .usage-table td {
+        padding: 8px 10px;
+    }
+    
+    .usage-table .tag-list {
+        gap: 2px;
+    }
+}
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     background: #f0f2f5;
