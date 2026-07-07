@@ -110,7 +110,9 @@ async function generateSync(model, prompt, imageData, negativePrompt, apiKey) {
 }
 
 /**
- * Call the legacy async image2image endpoint (older Wan editing models).
+ * Call the async image2image endpoint for Wan 2.5 image editing (wan2.5-i2i-preview).
+ * This model's request schema takes the reference image(s) as an "images" array
+ * under input, not the legacy Wan2.1 "function" + "base_image_url" fields.
  */
 async function generateAsyncImage2Image(model, prompt, imageData, negativePrompt, apiKey) {
     const createRes = await axios.post(
@@ -118,9 +120,8 @@ async function generateAsyncImage2Image(model, prompt, imageData, negativePrompt
         {
             model,
             input: {
-                function: 'description_edit',
                 prompt,
-                base_image_url: imageData
+                images: [imageData]
             },
             parameters: {
                 negative_prompt: negativePrompt || undefined,
