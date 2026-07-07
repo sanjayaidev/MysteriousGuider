@@ -6,6 +6,13 @@ let uploadedImageData = null;
 let currentResultUrl = null;
 let generationInProgress = false;
 
+let authToken = localStorage.getItem('authToken') || null;
+let currentUser = JSON.parse(localStorage.getItem('authUser') || 'null');
+let authMode = 'login'; // 'login' | 'register'
+// If the user picked "Generate" before logging in, remember which prompt so
+// we can jump straight back into the generation modal after auth succeeds.
+let pendingGenerationPromptId = null;
+
 // ==================== DOM REFS ====================
 const promptsGrid = document.getElementById('userPromptsGrid');
 const categoryFilter = document.getElementById('userCategoryFilter');
@@ -14,12 +21,14 @@ const searchFilter = document.getElementById('userSearchFilter');
 const sortFilter = document.getElementById('userSortFilter');
 const generationModal = document.getElementById('generationModal');
 const resultModal = document.getElementById('resultModal');
+const authModal = document.getElementById('authModal');
 
 // ==================== INIT ====================
 document.addEventListener('DOMContentLoaded', () => {
     loadUserCategories();
     loadUserPrompts();
     setupUserUpload();
+    updateAuthUI();
 });
 
 // ==================== LOAD PROMPTS ====================
@@ -141,6 +150,15 @@ function changeUserPage(direction) {
 
 // ==================== GENERATION MODAL ====================
 async function openGenerationModal(promptId) {
+    if (!authToken) {
+        // Users can browse prompts freely, but generating an image requires
+        // an account so we can attribute usage and enforce the JWT-protected
+        // /api/generate route. Remember the prompt and resume after login.
+        pendingGenerationPromptId = promptId;
+        openAuthModal();
+        return;
+    }
+
     selectedPromptId = promptId;
     
     try {
@@ -258,6 +276,13 @@ async function startGeneration() {
         alert('Please upload an image first!');
         return;
     }
+
+    if (!authToken) {
+        pendingGenerationPromptId = selectedPromptId;
+        generationModal.style.display = 'none';
+        openAuthModal();
+        return;
+    }
     
     const promptId = selectedPromptId;
     const model = document.getElementById('modelSelect').value;
@@ -279,7 +304,10 @@ async function startGeneration() {
         
         const response = await fetch('/api/generate', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
             body: JSON.stringify({
                 promptId,
                 imageData: uploadedImageData,
@@ -289,7 +317,17 @@ async function startGeneration() {
                 steps: parseInt(steps)
             })
         });
-        
+
+        if (response.status === 401) {
+            // Session expired or invalid - send the user back through login,
+            // then let them resume this exact generation.
+            clearAuthSession();
+            resultModal.style.display = 'none';
+            pendingGenerationPromptId = promptId;
+            openAuthModal('Your session expired. Please log in again to continue.');
+            return;
+        }
+
         const data = await response.json();
         
         if (data.success) {
@@ -383,6 +421,148 @@ function debounce(func, wait) {
     };
 }
 
+// ==================== AUTH ====================
+function openAuthModal(message) {
+    authMode = 'login';
+    renderAuthMode();
+    showAuthError(message || '');
+    document.getElementById('authForm').reset();
+    authModal.style.display = 'block';
+    document.body.style.overflow = 'hidden';
+}
+
+function closeAuthModal() {
+    authModal.style.display = 'none';
+    document.body.style.overflow = 'auto';
+    pendingGenerationPromptId = null;
+}
+
+function toggleAuthMode() {
+    authMode = authMode === 'login' ? 'register' : 'login';
+    renderAuthMode();
+    showAuthError('');
+}
+
+function renderAuthMode() {
+    const isRegister = authMode === 'register';
+    document.getElementById('authModalTitle').textContent = isRegister ? '✨ Create Account' : '👤 Log In';
+    document.getElementById('authSubmitBtn').textContent = isRegister ? 'Sign Up' : 'Log In';
+    document.getElementById('authNameGroup').style.display = isRegister ? 'block' : 'none';
+    document.getElementById('authSwitchPrompt').textContent = isRegister ? 'Already have an account?' : "Don't have an account?";
+    document.getElementById('authSwitchLink').textContent = isRegister ? 'Log in' : 'Sign up';
+}
+
+function showAuthError(message) {
+    const el = document.getElementById('authError');
+    if (message) {
+        el.textContent = message;
+        el.style.display = 'block';
+    } else {
+        el.style.display = 'none';
+    }
+}
+
+async function handleAuthSubmit(event) {
+    event.preventDefault();
+
+    const email = document.getElementById('authEmail').value.trim();
+    const password = document.getElementById('authPassword').value;
+    const name = document.getElementById('authName').value.trim();
+    const isRegister = authMode === 'register';
+
+    if (!email || !password) {
+        showAuthError('Please fill in email and password.');
+        return false;
+    }
+
+    const submitBtn = document.getElementById('authSubmitBtn');
+    const originalText = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.textContent = isRegister ? 'Signing up...' : 'Logging in...';
+
+    try {
+        const endpoint = isRegister ? '/api/auth/register' : '/api/auth/login';
+        const body = isRegister ? { email, password, name } : { email, password };
+
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+            throw new Error(data.error || (isRegister ? 'Registration failed' : 'Login failed'));
+        }
+
+        setAuthSession(data.token, data.user);
+        closeAuthModal();
+
+        // If the user was trying to generate an image before logging in,
+        // resume that exact flow now.
+        if (pendingGenerationPromptId) {
+            const promptId = pendingGenerationPromptId;
+            pendingGenerationPromptId = null;
+            openGenerationModal(promptId);
+        }
+    } catch (error) {
+        showAuthError(error.message);
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
+    }
+
+    return false;
+}
+
+function setAuthSession(token, user) {
+    authToken = token;
+    currentUser = user;
+    localStorage.setItem('authToken', token);
+    localStorage.setItem('authUser', JSON.stringify(user));
+    updateAuthUI();
+}
+
+function clearAuthSession() {
+    authToken = null;
+    currentUser = null;
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('authUser');
+    updateAuthUI();
+}
+
+async function logout() {
+    if (authToken) {
+        try {
+            await fetch('/api/auth/logout', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${authToken}` }
+            });
+        } catch (error) {
+            // Ignore network errors on logout - clear local session regardless
+        }
+    }
+    clearAuthSession();
+}
+
+function updateAuthUI() {
+    const btn = document.getElementById('authNavBtn');
+    if (!btn) return;
+
+    if (authToken && currentUser) {
+        btn.textContent = `👤 ${currentUser.name || currentUser.email}`;
+        btn.classList.add('logged-in');
+        btn.onclick = logout;
+        btn.title = 'Click to log out';
+    } else {
+        btn.textContent = '👤 Log In';
+        btn.classList.remove('logged-in');
+        btn.onclick = openAuthModal;
+        btn.title = '';
+    }
+}
+
 // ==================== GOOGLE DRIVE INTEGRATION ====================
 document.getElementById('driveLoginBtn').addEventListener('click', function() {
     // Placeholder for Google Drive integration
@@ -434,5 +614,8 @@ window.onclick = function(event) {
     }
     if (event.target === resultModal) {
         closeResultModal();
+    }
+    if (event.target === authModal) {
+        closeAuthModal();
     }
 };

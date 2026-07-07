@@ -395,6 +395,42 @@ body {
     color: #2c3e50;
 }
 
+.auth-modal {
+    max-width: 420px;
+}
+
+.auth-error {
+    background: #fdecea;
+    color: #c0392b;
+    border: 1px solid #f5c6cb;
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 15px;
+    font-size: 14px;
+}
+
+.auth-switch {
+    text-align: center;
+    margin-top: 10px;
+    font-size: 14px;
+    color: #667;
+}
+
+.auth-switch a {
+    color: #667eea;
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.auth-switch a:hover {
+    text-decoration: underline;
+}
+
+#authNavBtn.logged-in {
+    background: #2ecc71;
+    color: white;
+}
+
 .close {
     font-size: 28px;
     font-weight: bold;

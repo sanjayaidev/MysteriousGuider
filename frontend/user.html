@@ -24,6 +24,7 @@
                 <a href="#gallery">Gallery</a>
                 <a href="#about">About</a>
                 <button class="btn-drive" id="driveLoginBtn">🔗 Connect Google Drive</button>
+                <button class="btn-secondary" id="authNavBtn" onclick="openAuthModal()">👤 Log In</button>
             </nav>
         </div>
     </header>
@@ -195,6 +196,45 @@
                     <button onclick="regenerate()" class="btn-secondary">🔄 Retry</button>
                     <button onclick="closeResultModal()" class="btn-secondary">Close</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== AUTH MODAL ===== -->
+    <div id="authModal" class="modal">
+        <div class="modal-content auth-modal">
+            <div class="modal-header">
+                <h2 id="authModalTitle">👤 Log In</h2>
+                <span class="close" onclick="closeAuthModal()">&times;</span>
+            </div>
+
+            <div class="generation-body">
+                <div id="authError" class="auth-error" style="display: none;"></div>
+
+                <form id="authForm" onsubmit="return handleAuthSubmit(event)">
+                    <div class="param-group" id="authNameGroup" style="display: none;">
+                        <label>Name</label>
+                        <input type="text" id="authName" placeholder="Your name">
+                    </div>
+                    <div class="param-group">
+                        <label>Email</label>
+                        <input type="email" id="authEmail" placeholder="you@example.com" required>
+                    </div>
+                    <div class="param-group">
+                        <label>Password</label>
+                        <input type="password" id="authPassword" placeholder="••••••••" required minlength="6">
+                    </div>
+                </form>
+
+                <p class="auth-switch">
+                    <span id="authSwitchPrompt">Don't have an account?</span>
+                    <a href="#" onclick="toggleAuthMode(); return false;" id="authSwitchLink">Sign up</a>
+                </p>
+            </div>
+
+            <div class="modal-actions">
+                <button onclick="closeAuthModal()" class="btn-secondary">Cancel</button>
+                <button onclick="handleAuthSubmit(event)" class="btn-primary" id="authSubmitBtn">Log In</button>
             </div>
         </div>
     </div>
