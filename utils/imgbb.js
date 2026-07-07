@@ -40,4 +40,35 @@ async function uploadToImgBB(imageData, apiKey) {
     }
 }
 
-module.exports = { uploadToImgBB };
+/**
+ * Persist a generated image permanently on ImgBB.
+ *
+ * DashScope (Alibaba) image URLs are hosted on temporary OSS storage and
+ * expire (typically within 24 hours), so anything we want users to be able
+ * to come back and download later needs to be re-hosted somewhere durable.
+ *
+ * Accepts either a remote https URL (the common case for DashScope results)
+ * or a base64 data URI, downloads/decodes the bytes as needed, and re-uploads
+ * them to ImgBB.
+ *
+ * @param {string} imageUrlOrDataUri - The image location returned by the generator
+ * @param {string} apiKey - ImgBB API key
+ * @returns {Promise<string>} - Permanent ImgBB URL
+ */
+async function persistImage(imageUrlOrDataUri, apiKey) {
+    if (typeof imageUrlOrDataUri === 'string' && imageUrlOrDataUri.startsWith('data:image')) {
+        // Already a data URI - uploadToImgBB knows how to strip the prefix.
+        return uploadToImgBB(imageUrlOrDataUri, apiKey);
+    }
+
+    // Otherwise treat it as a remote URL and download the bytes first.
+    const imageResponse = await axios.get(imageUrlOrDataUri, {
+        responseType: 'arraybuffer',
+        timeout: 60000
+    });
+
+    const buffer = Buffer.from(imageResponse.data);
+    return uploadToImgBB(buffer, apiKey);
+}
+
+module.exports = { uploadToImgBB, persistImage };

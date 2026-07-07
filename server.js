@@ -56,7 +56,7 @@ app.get('/admin', (req, res) => {
 });
 
 // ==================== IMPORT UTILITIES ====================
-const { uploadToImgBB } = require('./utils/imgbb');
+const { uploadToImgBB, persistImage } = require('./utils/imgbb');
 const { generateImage } = require('./utils/alibaba');
 const { 
     verifyToken, 
@@ -866,12 +866,32 @@ app.post('/api/generate', verifyToken, async (req, res) => {
             guidanceScale || 7.5,
             steps || 30
         );
+
+        // DashScope image URLs are hosted on temporary OSS storage and expire
+        // (typically within 24 hours). Re-host the result on ImgBB so it stays
+        // downloadable/viewable long after the generation. Mock images (used
+        // when no DashScope key is configured) are already stable placeholders,
+        // so there's nothing to persist for those.
+        let finalImageUrl = result.imageUrl;
+        const imgbbApiKey = process.env.IMGBB_API_KEY;
+
+        if (!result.isMock && imgbbApiKey) {
+            try {
+                finalImageUrl = await persistImage(result.imageUrl, imgbbApiKey);
+            } catch (persistError) {
+                // Don't fail the whole generation just because permanent
+                // hosting failed - fall back to the (temporary) DashScope URL.
+                console.error('Failed to persist generated image to ImgBB:', persistError.message);
+            }
+        } else if (!result.isMock && !imgbbApiKey) {
+            console.warn('IMGBB_API_KEY not configured - generated image URL will expire with DashScope');
+        }
         
         // Save generation record
         await pool.query(
             `INSERT INTO generations (prompt_id, user_id, model, image_url, status) 
              VALUES ($1, $2, $3, $4, $5)`,
-            [promptId, req.userId, selectedModel, result.imageUrl, 'completed']
+            [promptId, req.userId, selectedModel, finalImageUrl, 'completed']
         );
         
         // Update usage stats
@@ -896,7 +916,7 @@ app.post('/api/generate', verifyToken, async (req, res) => {
         
         res.json({
             success: true,
-            imageUrl: result.imageUrl,
+            imageUrl: finalImageUrl,
             model: selectedModel,
             isMock: result.isMock || false
         });
@@ -913,6 +933,141 @@ app.post('/api/generate', verifyToken, async (req, res) => {
         }
         
         res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== USER PROFILE ROUTES ====================
+
+// Get current user's basic profile
+app.get('/api/user/profile', verifyToken, async (req, res) => {
+    try {
+        const result = await pool.query(
+            'SELECT id, email, name, created_at FROM users WHERE id = $1',
+            [req.userId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error('Error fetching profile:', error);
+        res.status(500).json({ error: 'Failed to fetch profile' });
+    }
+});
+
+// Get current user's generation history (paginated)
+app.get('/api/user/history', verifyToken, async (req, res) => {
+    try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = Math.min(parseInt(req.query.limit) || 10, 50);
+        const offset = (page - 1) * limit;
+
+        const historyResult = await pool.query(
+            `SELECT g.id, g.model, g.image_url, g.status, g.error_message, g.created_at,
+                    p.id as prompt_id, p.headline as prompt_headline
+             FROM generations g
+             LEFT JOIN prompts p ON p.id = g.prompt_id
+             WHERE g.user_id = $1
+             ORDER BY g.created_at DESC
+             LIMIT $2 OFFSET $3`,
+            [req.userId, limit, offset]
+        );
+
+        const countResult = await pool.query(
+            'SELECT COUNT(*) FROM generations WHERE user_id = $1',
+            [req.userId]
+        );
+        const total = parseInt(countResult.rows[0].count);
+
+        res.json({
+            history: historyResult.rows,
+            total,
+            page,
+            totalPages: Math.ceil(total / limit) || 1
+        });
+    } catch (error) {
+        console.error('Error fetching history:', error);
+        res.status(500).json({ error: 'Failed to fetch history' });
+    }
+});
+
+// Get current user's usage stats, broken down by model and by prompt
+app.get('/api/user/stats', verifyToken, async (req, res) => {
+    try {
+        const [totalsResult, modelResult, promptResult] = await Promise.all([
+            pool.query(
+                'SELECT total_generations, total_images_generated, last_active FROM usage_stats WHERE user_id = $1',
+                [req.userId]
+            ),
+            pool.query(
+                `SELECT model, COUNT(*) as count
+                 FROM generations
+                 WHERE user_id = $1 AND status = 'completed'
+                 GROUP BY model
+                 ORDER BY count DESC`,
+                [req.userId]
+            ),
+            pool.query(
+                `SELECT p.id as prompt_id, p.headline, COUNT(*) as count
+                 FROM generations g
+                 JOIN prompts p ON p.id = g.prompt_id
+                 WHERE g.user_id = $1 AND g.status = 'completed'
+                 GROUP BY p.id, p.headline
+                 ORDER BY count DESC`,
+                [req.userId]
+            )
+        ]);
+
+        res.json({
+            totals: totalsResult.rows[0] || { total_generations: 0, total_images_generated: 0, last_active: null },
+            byModel: modelResult.rows.map(row => ({ model: row.model, count: parseInt(row.count) })),
+            byPrompt: promptResult.rows.map(row => ({
+                promptId: row.prompt_id,
+                headline: row.headline,
+                count: parseInt(row.count)
+            }))
+        });
+    } catch (error) {
+        console.error('Error fetching usage stats:', error);
+        res.status(500).json({ error: 'Failed to fetch usage stats' });
+    }
+});
+
+// Change password (requires current password)
+app.post('/api/user/change-password', verifyToken, async (req, res) => {
+    try {
+        const { currentPassword, newPassword } = req.body;
+
+        if (!currentPassword || !newPassword) {
+            return res.status(400).json({ error: 'Current and new password are required' });
+        }
+        if (newPassword.length < 6) {
+            return res.status(400).json({ error: 'New password must be at least 6 characters' });
+        }
+
+        const userResult = await pool.query('SELECT * FROM users WHERE id = $1', [req.userId]);
+        if (userResult.rows.length === 0) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        const user = userResult.rows[0];
+
+        const isValid = await comparePassword(currentPassword, user.password_hash);
+        if (!isValid) {
+            return res.status(401).json({ error: 'Current password is incorrect' });
+        }
+
+        const newHash = await hashPassword(newPassword);
+        await pool.query(
+            'UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+            [newHash, req.userId]
+        );
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error changing password:', error);
+        res.status(500).json({ error: 'Failed to change password' });
     }
 });
 

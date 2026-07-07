@@ -13,6 +13,9 @@ let authMode = 'login'; // 'login' | 'register'
 // we can jump straight back into the generation modal after auth succeeds.
 let pendingGenerationPromptId = null;
 
+let profileHistoryPage = 1;
+let profileHistoryTotalPages = 1;
+
 // ==================== DOM REFS ====================
 const promptsGrid = document.getElementById('userPromptsGrid');
 const categoryFilter = document.getElementById('userCategoryFilter');
@@ -22,13 +25,15 @@ const sortFilter = document.getElementById('userSortFilter');
 const generationModal = document.getElementById('generationModal');
 const resultModal = document.getElementById('resultModal');
 const authModal = document.getElementById('authModal');
+const profileModal = document.getElementById('profileModal');
 
 // ==================== INIT ====================
 document.addEventListener('DOMContentLoaded', () => {
     loadUserCategories();
     loadUserPrompts();
     setupUserUpload();
-    updateAuthUI();
+    initAuthNavButton();
+    checkAuthSession();
 });
 
 // ==================== LOAD PROMPTS ====================
@@ -422,10 +427,60 @@ function debounce(func, wait) {
 }
 
 // ==================== AUTH ====================
+
+// Attach the nav button's click handler once via addEventListener so it never
+// gets a stray DOM event passed into it as an argument (that was the cause of
+// the "[object PointerEvent]" error - assigning a function with a parameter
+// directly to `.onclick` hands it the click event as that first argument).
+function initAuthNavButton() {
+    const btn = document.getElementById('authNavBtn');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+        if (authToken && currentUser) {
+            openProfileModal();
+        } else {
+            openAuthModal();
+        }
+    });
+}
+
+// Called on page load. If there's no session at all, or the stored token
+// turns out to be invalid/expired, show the login panel immediately instead
+// of waiting for the user to try to generate something.
+async function checkAuthSession() {
+    if (!authToken) {
+        updateAuthUI();
+        openAuthModal();
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/auth/verify', {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        const data = await response.json();
+
+        if (!response.ok || !data.valid) {
+            clearAuthSession();
+            openAuthModal('Your session expired. Please log in again.');
+            return;
+        }
+
+        currentUser = data.user;
+        localStorage.setItem('authUser', JSON.stringify(currentUser));
+        updateAuthUI();
+    } catch (error) {
+        // Network hiccup - don't force a logout, just keep the cached session.
+        updateAuthUI();
+    }
+}
+
 function openAuthModal(message) {
     authMode = 'login';
     renderAuthMode();
-    showAuthError(message || '');
+    // Guard against anything other than an actual string ever reaching the
+    // error box (e.g. if a caller is ever wired up wrong again).
+    showAuthError(typeof message === 'string' ? message : '');
     document.getElementById('authForm').reset();
     authModal.style.display = 'block';
     document.body.style.overflow = 'hidden';
@@ -553,14 +608,277 @@ function updateAuthUI() {
     if (authToken && currentUser) {
         btn.textContent = `👤 ${currentUser.name || currentUser.email}`;
         btn.classList.add('logged-in');
-        btn.onclick = logout;
-        btn.title = 'Click to log out';
+        btn.title = 'View profile & usage';
     } else {
         btn.textContent = '👤 Log In';
         btn.classList.remove('logged-in');
-        btn.onclick = openAuthModal;
         btn.title = '';
     }
+}
+
+// ==================== PROFILE & USAGE ====================
+function openProfileModal() {
+    if (!authToken) {
+        openAuthModal();
+        return;
+    }
+    profileModal.style.display = 'block';
+    document.body.style.overflow = 'hidden';
+    switchProfileTab('overview');
+    loadProfileOverview();
+}
+
+function closeProfileModal() {
+    profileModal.style.display = 'none';
+    document.body.style.overflow = 'auto';
+}
+
+function switchProfileTab(tab) {
+    ['overview', 'history', 'security'].forEach(name => {
+        const panel = document.getElementById(`profileTab-${name}`);
+        const tabBtn = document.getElementById(`profileTabBtn-${name}`);
+        if (panel) panel.style.display = name === tab ? 'block' : 'none';
+        if (tabBtn) tabBtn.classList.toggle('active', name === tab);
+    });
+
+    if (tab === 'history') {
+        profileHistoryPage = 1;
+        loadProfileHistory();
+    }
+}
+
+async function loadProfileOverview() {
+    document.getElementById('profileName').textContent = currentUser?.name || '—';
+    document.getElementById('profileEmail').textContent = currentUser?.email || '—';
+
+    const statsGrid = document.getElementById('profileStatsGrid');
+    const modelBreakdown = document.getElementById('profileModelBreakdown');
+    const promptBreakdown = document.getElementById('profilePromptBreakdown');
+
+    statsGrid.innerHTML = '<div class="loading-spinner">Loading stats...</div>';
+    modelBreakdown.innerHTML = '<div class="loading-spinner">Loading...</div>';
+    promptBreakdown.innerHTML = '<div class="loading-spinner">Loading...</div>';
+
+    try {
+        const response = await fetch('/api/user/stats', {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+
+        if (response.status === 401) {
+            clearAuthSession();
+            closeProfileModal();
+            openAuthModal('Your session expired. Please log in again.');
+            return;
+        }
+
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || 'Failed to load usage stats');
+        }
+
+        const totals = data.totals || {};
+        statsGrid.innerHTML = `
+            <div class="stat-card">
+                <span class="stat-card-number">${totals.total_generations || 0}</span>
+                <span class="stat-card-label">Total Generations</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-card-number">${totals.total_images_generated || 0}</span>
+                <span class="stat-card-label">Images Created</span>
+            </div>
+        `;
+
+        modelBreakdown.innerHTML = renderBreakdownList(
+            data.byModel.map(item => ({ label: item.model, count: item.count })),
+            'No completed generations yet'
+        );
+
+        promptBreakdown.innerHTML = renderBreakdownList(
+            data.byPrompt.map(item => ({ label: item.headline, count: item.count })),
+            'No completed generations yet'
+        );
+    } catch (error) {
+        console.error('Error loading profile stats:', error);
+        statsGrid.innerHTML = `<div class="loading-spinner">Failed to load stats.</div>`;
+        modelBreakdown.innerHTML = '';
+        promptBreakdown.innerHTML = '';
+    }
+}
+
+function renderBreakdownList(items, emptyMessage) {
+    if (!items || items.length === 0) {
+        return `<div class="loading-spinner">${escapeHtml(emptyMessage)}</div>`;
+    }
+
+    const maxCount = Math.max(...items.map(item => item.count), 1);
+
+    return items.map(item => `
+        <div class="breakdown-row">
+            <div class="breakdown-label">${escapeHtml(item.label || 'Unknown')}</div>
+            <div class="breakdown-bar-track">
+                <div class="breakdown-bar-fill" style="width: ${(item.count / maxCount) * 100}%"></div>
+            </div>
+            <div class="breakdown-count">${item.count}</div>
+        </div>
+    `).join('');
+}
+
+async function loadProfileHistory() {
+    const list = document.getElementById('profileHistoryList');
+    list.innerHTML = '<div class="loading-spinner">Loading history...</div>';
+
+    try {
+        const response = await fetch(`/api/user/history?page=${profileHistoryPage}&limit=10`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+
+        if (response.status === 401) {
+            clearAuthSession();
+            closeProfileModal();
+            openAuthModal('Your session expired. Please log in again.');
+            return;
+        }
+
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || 'Failed to load history');
+        }
+
+        renderProfileHistory(data.history || []);
+        profileHistoryTotalPages = data.totalPages || 1;
+        updateProfileHistoryPagination();
+    } catch (error) {
+        console.error('Error loading history:', error);
+        list.innerHTML = '<div class="loading-spinner">Failed to load history.</div>';
+    }
+}
+
+function renderProfileHistory(items) {
+    const list = document.getElementById('profileHistoryList');
+
+    if (items.length === 0) {
+        list.innerHTML = '<div class="loading-spinner">No generations yet</div>';
+        return;
+    }
+
+    list.innerHTML = items.map(item => {
+        const statusClass = item.status === 'completed' ? 'status-completed' : 'status-failed';
+        const date = new Date(item.created_at).toLocaleString();
+
+        return `
+            <div class="history-item">
+                ${item.image_url && item.status === 'completed' ?
+                    `<img src="${escapeHtml(item.image_url)}" alt="Generated image" class="history-thumb">` :
+                    `<div class="history-thumb history-thumb-empty">❌</div>`
+                }
+                <div class="history-details">
+                    <div class="history-headline">${escapeHtml(item.prompt_headline || 'Deleted prompt')}</div>
+                    <div class="history-meta">
+                        <span>${escapeHtml(item.model || 'unknown model')}</span>
+                        <span class="status-badge ${statusClass}">${escapeHtml(item.status)}</span>
+                    </div>
+                    <div class="history-date">${date}</div>
+                    ${item.error_message ? `<div class="history-error">${escapeHtml(item.error_message)}</div>` : ''}
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function updateProfileHistoryPagination() {
+    const pagination = document.getElementById('profileHistoryPagination');
+    pagination.style.display = profileHistoryTotalPages > 1 ? 'flex' : 'none';
+    document.getElementById('profileHistoryPageInfo').textContent = `Page ${profileHistoryPage} of ${profileHistoryTotalPages}`;
+    document.getElementById('profileHistoryPrevBtn').disabled = profileHistoryPage === 1;
+    document.getElementById('profileHistoryNextBtn').disabled = profileHistoryPage === profileHistoryTotalPages;
+}
+
+function changeProfileHistoryPage(direction) {
+    if (direction === 'prev' && profileHistoryPage > 1) {
+        profileHistoryPage--;
+    } else if (direction === 'next' && profileHistoryPage < profileHistoryTotalPages) {
+        profileHistoryPage++;
+    }
+    loadProfileHistory();
+}
+
+// ==================== CHANGE PASSWORD ====================
+async function handleChangePassword(event) {
+    event.preventDefault();
+
+    const currentPassword = document.getElementById('currentPassword').value;
+    const newPassword = document.getElementById('newPassword').value;
+    const confirmNewPassword = document.getElementById('confirmNewPassword').value;
+
+    hidePasswordMessages();
+
+    if (newPassword !== confirmNewPassword) {
+        showPasswordError('New password and confirmation do not match.');
+        return false;
+    }
+    if (newPassword.length < 6) {
+        showPasswordError('New password must be at least 6 characters.');
+        return false;
+    }
+
+    const btn = document.getElementById('changePasswordBtn');
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Updating...';
+
+    try {
+        const response = await fetch('/api/user/change-password', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify({ currentPassword, newPassword })
+        });
+
+        if (response.status === 401) {
+            const data = await response.json().catch(() => ({}));
+            // A 401 here could mean either "wrong current password" or
+            // "session expired" - the backend distinguishes these via the
+            // error message, so just surface it rather than guessing.
+            showPasswordError(data.error || 'Current password is incorrect.');
+            return false;
+        }
+
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            throw new Error(data.error || 'Failed to update password');
+        }
+
+        document.getElementById('passwordForm').reset();
+        showPasswordSuccess('Password updated successfully.');
+    } catch (error) {
+        showPasswordError(error.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
+    }
+
+    return false;
+}
+
+function showPasswordError(message) {
+    const el = document.getElementById('passwordError');
+    el.textContent = message;
+    el.style.display = 'block';
+    document.getElementById('passwordSuccess').style.display = 'none';
+}
+
+function showPasswordSuccess(message) {
+    const el = document.getElementById('passwordSuccess');
+    el.textContent = message;
+    el.style.display = 'block';
+    document.getElementById('passwordError').style.display = 'none';
+}
+
+function hidePasswordMessages() {
+    document.getElementById('passwordError').style.display = 'none';
+    document.getElementById('passwordSuccess').style.display = 'none';
 }
 
 // ==================== GOOGLE DRIVE INTEGRATION ====================
@@ -617,5 +935,8 @@ window.onclick = function(event) {
     }
     if (event.target === authModal) {
         closeAuthModal();
+    }
+    if (event.target === profileModal) {
+        closeProfileModal();
     }
 };

@@ -24,7 +24,7 @@
                 <a href="#gallery">Gallery</a>
                 <a href="#about">About</a>
                 <button class="btn-drive" id="driveLoginBtn">🔗 Connect Google Drive</button>
-                <button class="btn-secondary" id="authNavBtn" onclick="openAuthModal()">👤 Log In</button>
+                <button class="btn-secondary" id="authNavBtn">👤 Log In</button>
             </nav>
         </div>
     </header>
@@ -208,10 +208,10 @@
                 <span class="close" onclick="closeAuthModal()">&times;</span>
             </div>
 
-            <div class="generation-body">
-                <div id="authError" class="auth-error" style="display: none;"></div>
+            <form id="authForm" onsubmit="return handleAuthSubmit(event)">
+                <div class="generation-body">
+                    <div id="authError" class="auth-error" style="display: none;"></div>
 
-                <form id="authForm" onsubmit="return handleAuthSubmit(event)">
                     <div class="param-group" id="authNameGroup" style="display: none;">
                         <label>Name</label>
                         <input type="text" id="authName" placeholder="Your name">
@@ -224,17 +224,97 @@
                         <label>Password</label>
                         <input type="password" id="authPassword" placeholder="••••••••" required minlength="6">
                     </div>
-                </form>
 
-                <p class="auth-switch">
-                    <span id="authSwitchPrompt">Don't have an account?</span>
-                    <a href="#" onclick="toggleAuthMode(); return false;" id="authSwitchLink">Sign up</a>
-                </p>
+                    <p class="auth-switch">
+                        <span id="authSwitchPrompt">Don't have an account?</span>
+                        <a href="#" onclick="toggleAuthMode(); return false;" id="authSwitchLink">Sign up</a>
+                    </p>
+                </div>
+
+                <div class="modal-actions">
+                    <button type="button" onclick="closeAuthModal()" class="btn-secondary">Cancel</button>
+                    <button type="submit" class="btn-primary" id="authSubmitBtn">Log In</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ===== PROFILE MODAL ===== -->
+    <div id="profileModal" class="modal">
+        <div class="modal-content profile-modal">
+            <div class="modal-header">
+                <h2>👤 My Account</h2>
+                <span class="close" onclick="closeProfileModal()">&times;</span>
+            </div>
+
+            <div class="profile-tabs">
+                <button class="profile-tab active" id="profileTabBtn-overview" onclick="switchProfileTab('overview')">Overview</button>
+                <button class="profile-tab" id="profileTabBtn-history" onclick="switchProfileTab('history')">History</button>
+                <button class="profile-tab" id="profileTabBtn-security" onclick="switchProfileTab('security')">Change Password</button>
+            </div>
+
+            <div class="generation-body profile-body">
+                <!-- Overview: profile info + usage broken down by model / prompt -->
+                <div class="profile-tab-panel" id="profileTab-overview">
+                    <div class="profile-info">
+                        <p><strong>Name:</strong> <span id="profileName">—</span></p>
+                        <p><strong>Email:</strong> <span id="profileEmail">—</span></p>
+                    </div>
+
+                    <div class="stats-grid" id="profileStatsGrid">
+                        <div class="loading-spinner">Loading stats...</div>
+                    </div>
+
+                    <h3>Usage by Model</h3>
+                    <div id="profileModelBreakdown" class="breakdown-list">
+                        <div class="loading-spinner">Loading...</div>
+                    </div>
+
+                    <h3>Usage by Prompt</h3>
+                    <div id="profilePromptBreakdown" class="breakdown-list">
+                        <div class="loading-spinner">Loading...</div>
+                    </div>
+                </div>
+
+                <!-- History: recent generations -->
+                <div class="profile-tab-panel" id="profileTab-history" style="display: none;">
+                    <div id="profileHistoryList" class="history-list">
+                        <div class="loading-spinner">Loading history...</div>
+                    </div>
+                    <div class="pagination-container" id="profileHistoryPagination" style="display: none;">
+                        <button onclick="changeProfileHistoryPage('prev')" id="profileHistoryPrevBtn">← Previous</button>
+                        <span id="profileHistoryPageInfo">Page 1 of 1</span>
+                        <button onclick="changeProfileHistoryPage('next')" id="profileHistoryNextBtn">Next →</button>
+                    </div>
+                </div>
+
+                <!-- Security: change password -->
+                <div class="profile-tab-panel" id="profileTab-security" style="display: none;">
+                    <form id="passwordForm" onsubmit="return handleChangePassword(event)">
+                        <div id="passwordError" class="auth-error" style="display: none;"></div>
+                        <div id="passwordSuccess" class="auth-success" style="display: none;"></div>
+
+                        <div class="param-group">
+                            <label>Current Password</label>
+                            <input type="password" id="currentPassword" required>
+                        </div>
+                        <div class="param-group">
+                            <label>New Password</label>
+                            <input type="password" id="newPassword" required minlength="6">
+                        </div>
+                        <div class="param-group">
+                            <label>Confirm New Password</label>
+                            <input type="password" id="confirmNewPassword" required minlength="6">
+                        </div>
+
+                        <button type="submit" class="btn-primary" id="changePasswordBtn">Update Password</button>
+                    </form>
+                </div>
             </div>
 
             <div class="modal-actions">
-                <button onclick="closeAuthModal()" class="btn-secondary">Cancel</button>
-                <button onclick="handleAuthSubmit(event)" class="btn-primary" id="authSubmitBtn">Log In</button>
+                <button onclick="logout(); closeProfileModal();" class="btn-danger">🚪 Log Out</button>
+                <button onclick="closeProfileModal()" class="btn-secondary">Close</button>
             </div>
         </div>
     </div>
