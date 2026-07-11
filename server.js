@@ -12,6 +12,7 @@ require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const HOST = '0.0.0.0';
 
 // ==================== DATABASE CONNECTION ====================
 const pool = new Pool({
@@ -20,6 +21,22 @@ const pool = new Pool({
         rejectUnauthorized: false
     }
 });
+
+// ==================== AUTO PINGER (14 minutes) ====================
+// Render free tier spins down after 15 minutes of inactivity
+// This pings the server every 14 minutes to keep it alive
+setInterval(() => {
+    const axios = require('axios');
+    const renderUrl = process.env.RENDER_EXTERNAL_URL || process.env.DEPLOY_URL;
+    
+    if (renderUrl) {
+        axios.get(`${renderUrl}/api/ping`)
+            .then(() => console.log('🔄 Auto-ping successful'))
+            .catch(err => console.error('❌ Auto-ping failed:', err.message));
+    } else {
+        console.log('ℹ️  No RENDER_EXTERNAL_URL or DEPLOY_URL set, skipping auto-ping');
+    }
+}, 14 * 60 * 1000); // 14 minutes
 
 // ==================== MIDDLEWARE ====================
 app.use(cors({
@@ -1120,6 +1137,11 @@ app.use((err, req, res, next) => {
     res.status(500).json({ error: 'Internal server error' });
 });
 
+// ==================== PING ENDPOINT (for auto-pinger) ====================
+app.get('/api/ping', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 // ==================== START SERVER ====================
 
 // Defense-in-depth: an unhandled rejection anywhere (e.g. an await inside a
@@ -1133,7 +1155,7 @@ process.on('uncaughtException', (err) => {
     console.error('Uncaught exception (server staying up):', err);
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, HOST, () => {
     console.log('='.repeat(70));
     console.log('🚀 PromptPro Server Started');
     console.log('='.repeat(70));
